@@ -37,5 +37,11 @@
                 description="Search and manage tracked symbols: parameters, locals, and fields of the current method">
             <keyboard-shortcut keymap="$default" first-keystroke="alt SEMICOLON"/>
         </action>
+        <action id="com.neex.inliner.FocusFold"
+                class="com.neex.inliner.focus.FocusFoldAction"
+                text="Fold to Focus"
+                description="Collapse every line that doesn't touch a focused symbol into an expandable '⋯ N lines' region">
+            <keyboard-shortcut keymap="$default" first-keystroke="shift alt SEMICOLON"/>
+        </action>
     </actions>
 </idea-plugin>
