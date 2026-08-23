@@ -31,5 +31,11 @@
                 description="Track the parameter or local variable at the caret: every line touching it gets highlighted">
             <keyboard-shortcut keymap="$default" first-keystroke="alt PERIOD"/>
         </action>
+        <action id="com.neex.inliner.FocusPopup"
+                class="com.neex.inliner.focus.FocusPopupAction"
+                text="Focus Symbols…"
+                description="Search and manage tracked symbols: parameters, locals, and fields of the current method">
+            <keyboard-shortcut keymap="$default" first-keystroke="alt SEMICOLON"/>
+        </action>
     </actions>
 </idea-plugin>
