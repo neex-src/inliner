@@ -56,6 +56,7 @@ object FragmentEditorFactory {
             isIndentGuidesShown = false
         }
         clipToRange(editor, methodRange)
+        editor.backgroundColor = frameBackground()
         editor.scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER
         editor.scrollPane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         editor.scrollPane.isWheelScrollingEnabled = false
@@ -134,8 +135,14 @@ object FragmentEditorFactory {
         return EditorEmbeddedComponentManager.getInstance().addComponent(parentEditor, component, props)
     }
 
+    /** Slightly off the host editor background, so where the inline frame starts/ends is visible. */
+    private fun frameBackground(): Color {
+        val base = EditorColorsManager.getInstance().globalScheme.defaultBackground
+        return if (ColorUtil.isDark(base)) ColorUtil.mix(base, Color.WHITE, 0.05) else ColorUtil.mix(base, Color.BLACK, 0.04)
+    }
+
     private fun headerBackground(): Color {
         val base = EditorColorsManager.getInstance().globalScheme.defaultBackground
-        return if (ColorUtil.isDark(base)) ColorUtil.brighter(base, 1) else ColorUtil.darker(base, 1)
+        return if (ColorUtil.isDark(base)) ColorUtil.mix(base, Color.WHITE, 0.11) else ColorUtil.mix(base, Color.BLACK, 0.08)
     }
 }
