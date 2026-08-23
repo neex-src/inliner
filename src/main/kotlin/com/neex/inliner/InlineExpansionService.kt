@@ -2,7 +2,6 @@ package com.neex.inliner
 
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
@@ -14,6 +13,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.psi.PsiCallExpression
@@ -25,7 +25,7 @@ import com.intellij.psi.PsiModifier
 import com.intellij.psi.PsiSubstitutor
 import com.intellij.psi.SmartPointerManager
 import com.intellij.psi.search.searches.OverridingMethodsSearch
-import com.intellij.ui.SimpleListCellRenderer
+import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.intellij.psi.util.PsiFormatUtil
 import com.intellij.psi.util.PsiFormatUtilBase
 import com.intellij.psi.util.PsiTreeUtil
@@ -84,7 +84,11 @@ object InlineExpansionService {
         declaration: PsiMethod,
     ) {
         val impls = ProgressManager.getInstance().runProcessWithProgressSynchronously<List<PsiMethod>, RuntimeException>(
-            { runReadAction { findImplementations(declaration) } },
+            {
+                ApplicationManager.getApplication().runReadAction(
+                    Computable { findImplementations(declaration) },
+                )
+            },
             "Searching for Implementations…", true, project,
         )
         when {
@@ -98,7 +102,7 @@ object InlineExpansionService {
                 JBPopupFactory.getInstance()
                     .createPopupChooserBuilder(impls)
                     .setTitle("Implementations of ${declaration.name}()")
-                    .setRenderer(SimpleListCellRenderer.create("") { m -> implLabel(m) })
+                    .setRenderer(textListCellRenderer { m -> m?.let(::implLabel) })
                     .setNamerForFiltering { implLabel(it) }
                     .setItemChosenCallback { expandMethod(invokingEditor, project, call, frame, it) }
                     .createPopup()
