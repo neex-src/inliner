@@ -4,7 +4,6 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
-import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiJavaFile
 
 class ToggleInlineAction : AnAction() {
@@ -17,7 +16,7 @@ class ToggleInlineAction : AnAction() {
         val editor = e.getData(CommonDataKeys.EDITOR)
         val project = e.project
         e.presentation.isEnabled = editor != null && project != null &&
-            PsiDocumentManager.getInstance(project).getPsiFile(editor.document) is PsiJavaFile
+            InlineExpansionService.psiFileFor(editor, project) is PsiJavaFile
     }
 
     override fun actionPerformed(e: AnActionEvent) {

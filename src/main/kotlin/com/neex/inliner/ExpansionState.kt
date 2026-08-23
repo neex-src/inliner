@@ -8,6 +8,7 @@ import com.intellij.openapi.editor.RangeMarker
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
+import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.SmartPsiElementPointer
 import javax.swing.JPanel
@@ -45,6 +46,12 @@ class ExpansionNode(
     val methodPtr: SmartPsiElementPointer<PsiMethod>,
     /** The method's range in the callee file's document. */
     val methodRange: RangeMarker,
+    /**
+     * Set when the fragment renders a detached document (e.g. a decompiled mirror that has
+     * no real Document): PSI for caret/resolve inside the frame comes from here, since
+     * PsiDocumentManager knows nothing about the detached document.
+     */
+    val pinnedPsiFile: PsiFile? = null,
 ) : Disposable {
     val children = mutableListOf<ExpansionNode>()
 

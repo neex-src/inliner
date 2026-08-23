@@ -10,6 +10,7 @@ import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.ex.FoldingModelEx
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.editor.impl.EditorEmbeddedComponentManager
+import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VirtualFile
@@ -33,11 +34,17 @@ object FragmentEditorFactory {
     fun createFragmentViewer(
         project: Project,
         calleeDoc: Document,
-        calleeVFile: VirtualFile,
+        calleeVFile: VirtualFile?,
+        calleeFileType: FileType,
         methodRange: TextRange,
     ): EditorEx {
         val editor = EditorFactory.getInstance().createViewer(calleeDoc, project, EditorKind.PREVIEW) as EditorEx
-        editor.highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(project, calleeVFile)
+        // A detached document (decompiled mirror) has no VirtualFile — highlight by file type.
+        editor.highlighter = if (calleeVFile != null) {
+            EditorHighlighterFactory.getInstance().createEditorHighlighter(project, calleeVFile)
+        } else {
+            EditorHighlighterFactory.getInstance().createEditorHighlighter(project, calleeFileType)
+        }
         editor.settings.apply {
             isLineNumbersShown = false
             isFoldingOutlineShown = false
