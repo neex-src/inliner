@@ -56,6 +56,9 @@ class FocusSet(val hostEditor: Editor, val project: Project) : Disposable {
     val entries = mutableListOf<FocusEntry>()
     var foldToFocus = false
 
+    /** Expansion frames that already carry a dispose-time cleanup for derived entries. */
+    val cleanupNodes = mutableSetOf<ExpansionNode>()
+
     fun enabledEntries(): List<FocusEntry> = entries.filter { it.enabled }
 
     fun nextColorIndex(): Int {

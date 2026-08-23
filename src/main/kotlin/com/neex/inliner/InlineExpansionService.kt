@@ -26,6 +26,8 @@ import com.intellij.psi.PsiSubstitutor
 import com.intellij.psi.SmartPointerManager
 import com.intellij.psi.search.searches.OverridingMethodsSearch
 import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
+import com.neex.inliner.focus.FocusKeys
+import com.neex.inliner.focus.FocusService
 import com.intellij.psi.util.PsiFormatUtil
 import com.intellij.psi.util.PsiFormatUtilBase
 import com.intellij.psi.util.PsiTreeUtil
@@ -196,6 +198,9 @@ object InlineExpansionService {
 
         installInvalidationListeners(node, inlay)
         relayoutUp(node)
+
+        // Focus integration: propagate tracked arguments into the new frame and paint it.
+        state.hostEditor.getUserData(FocusKeys.FOCUS_SET)?.let { FocusService.refreshAll(it) }
     }
 
     fun collapse(node: ExpansionNode) {
