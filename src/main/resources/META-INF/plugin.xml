@@ -25,5 +25,11 @@
                 description="Show the called method's body inline below the call, read-only">
             <keyboard-shortcut keymap="$default" first-keystroke="alt COMMA"/>
         </action>
+        <action id="com.neex.inliner.FocusToggle"
+                class="com.neex.inliner.focus.FocusToggleAction"
+                text="Toggle Focus on Symbol at Caret"
+                description="Track the parameter or local variable at the caret: every line touching it gets highlighted">
+            <keyboard-shortcut keymap="$default" first-keystroke="alt PERIOD"/>
+        </action>
     </actions>
 </idea-plugin>
