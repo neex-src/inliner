@@ -1,0 +1,29 @@
+<idea-plugin>
+    <id>com.neex.inliner</id>
+    <name>Inline Reading Mode</name>
+    <vendor email="dev@neex.dev">NEEX</vendor>
+    <description><![CDATA[
+        Read code without jumping between files: put the caret on a method call and press
+        <b>Ctrl+Alt+Shift+=</b> to show the callee's body inline below the call — read-only,
+        syntax-highlighted, recursive (expand calls inside the expanded body too).
+        Press the shortcut again, <b>Esc</b>, or click the header to collapse.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.java</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <editorActionHandler action="EditorEscape"
+                             implementationClass="com.neex.inliner.InlineEscapeHandler"
+                             order="first"/>
+    </extensions>
+
+    <actions>
+        <action id="com.neex.inliner.Toggle"
+                class="com.neex.inliner.ToggleInlineAction"
+                text="Expand/Collapse Callee Inline"
+                description="Show the called method's body inline below the call, read-only">
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt shift EQUALS"/>
+        </action>
+    </actions>
+</idea-plugin>
