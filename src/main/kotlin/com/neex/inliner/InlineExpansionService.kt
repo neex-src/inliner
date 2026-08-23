@@ -33,6 +33,11 @@ import com.intellij.psi.util.PsiTreeUtil
 object InlineExpansionService {
 
     fun toggle(editor: Editor, project: Project) {
+        // Commit here, NOT in psiFileFor: this runs on EDT with write intent, while
+        // psiFileFor is also called from update() on the BGT where committing is forbidden.
+        if (editor.getUserData(Keys.FRAME_NODE)?.pinnedPsiFile == null) {
+            PsiDocumentManager.getInstance(project).commitDocument(editor.document)
+        }
         val call = findCallAtCaret(editor, project)
         if (call == null) {
             hint(editor, "No method call at caret")
@@ -248,11 +253,10 @@ object InlineExpansionService {
         return null
     }
 
+    /** Read-only on purpose — called from update() on the background action-update thread. */
     internal fun psiFileFor(editor: Editor, project: Project): PsiFile? {
         editor.getUserData(Keys.FRAME_NODE)?.pinnedPsiFile?.let { return it }
-        val pdm = PsiDocumentManager.getInstance(project)
-        pdm.commitDocument(editor.document)
-        return pdm.getPsiFile(editor.document)
+        return PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
     }
 
     private fun findCallAtCaret(editor: Editor, project: Project): PsiCallExpression? {
