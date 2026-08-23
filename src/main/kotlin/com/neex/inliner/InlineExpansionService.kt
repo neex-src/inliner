@@ -2,6 +2,7 @@ package com.neex.inliner
 
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
@@ -9,8 +10,10 @@ import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.ex.util.EditorUtil
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.psi.PsiCallExpression
@@ -18,8 +21,11 @@ import com.intellij.psi.PsiCompiledElement
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiMethod
+import com.intellij.psi.PsiModifier
 import com.intellij.psi.PsiSubstitutor
 import com.intellij.psi.SmartPointerManager
+import com.intellij.psi.search.searches.OverridingMethodsSearch
+import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.psi.util.PsiFormatUtil
 import com.intellij.psi.util.PsiFormatUtilBase
 import com.intellij.psi.util.PsiTreeUtil
@@ -57,8 +63,58 @@ object InlineExpansionService {
             hint(invokingEditor, "Cannot resolve call target")
             return
         }
+        if (resolved.body == null && resolved.hasModifierProperty(PsiModifier.ABSTRACT)) {
+            chooseImplementation(invokingEditor, project, call, frame, resolved)
+            return
+        }
         expandMethod(invokingEditor, project, call, frame, resolved)
     }
+
+    /** Interface / abstract target: inline the only implementation, or let the user pick one. */
+    private fun chooseImplementation(
+        invokingEditor: EditorEx,
+        project: Project,
+        call: PsiCallExpression,
+        frame: ExpansionNode?,
+        declaration: PsiMethod,
+    ) {
+        val impls = ProgressManager.getInstance().runProcessWithProgressSynchronously<List<PsiMethod>, RuntimeException>(
+            { runReadAction { findImplementations(declaration) } },
+            "Searching for Implementations…", true, project,
+        )
+        when {
+            impls.isEmpty() -> hint(invokingEditor, "No implementations found for ${declaration.name}()")
+            impls.size == 1 -> expandMethod(invokingEditor, project, call, frame, impls[0])
+            else -> {
+                testImplPicker?.let { pick ->
+                    pick(impls)?.let { expandMethod(invokingEditor, project, call, frame, it) }
+                    return
+                }
+                JBPopupFactory.getInstance()
+                    .createPopupChooserBuilder(impls)
+                    .setTitle("Implementations of ${declaration.name}()")
+                    .setRenderer(SimpleListCellRenderer.create("") { m -> implLabel(m) })
+                    .setNamerForFiltering { implLabel(it) }
+                    .setItemChosenCallback { expandMethod(invokingEditor, project, call, frame, it) }
+                    .createPopup()
+                    .showInBestPositionFor(invokingEditor)
+            }
+        }
+    }
+
+    internal fun findImplementations(declaration: PsiMethod): List<PsiMethod> = try {
+        OverridingMethodsSearch.search(declaration).findAll()
+            .filter { !it.hasModifierProperty(PsiModifier.ABSTRACT) }
+            .sortedBy { implLabel(it) }
+            .take(50)
+    } catch (_: IndexNotReadyException) {
+        emptyList()
+    }
+
+    /** Test seam: the popup can't run headless; tests stub the choice instead. */
+    internal var testImplPicker: ((List<PsiMethod>) -> PsiMethod?)? = null
+
+    private fun implLabel(m: PsiMethod): String = m.containingClass?.qualifiedName ?: m.name
 
     internal fun expandMethod(
         invokingEditor: EditorEx,
