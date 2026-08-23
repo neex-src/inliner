@@ -14,7 +14,9 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.psi.PsiCallExpression
+import com.intellij.psi.PsiCompiledElement
 import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiSubstitutor
 import com.intellij.psi.SmartPointerManager
@@ -55,17 +57,35 @@ object InlineExpansionService {
             hint(invokingEditor, "Cannot resolve call target")
             return
         }
-        // Prefer attached sources over a compiled stub.
-        val method = resolved.navigationElement as? PsiMethod ?: resolved
-        if (method.body == null) {
-            hint(invokingEditor, "No source body for ${method.name}()")
+        expandMethod(invokingEditor, project, call, frame, resolved)
+    }
+
+    internal fun expandMethod(
+        invokingEditor: EditorEx,
+        project: Project,
+        call: PsiCallExpression,
+        frame: ExpansionNode?,
+        resolved: PsiMethod,
+    ) {
+        val method = sourceForm(resolved)
+        if (method == null) {
+            hint(invokingEditor, "No source or decompiled body for ${resolved.name}()")
             return
         }
         val calleeFile = method.containingFile
-        val calleeVFile = calleeFile?.virtualFile
-        val calleeDoc = calleeFile?.let { PsiDocumentManager.getInstance(project).getDocument(it) }
-        if (calleeVFile == null || calleeDoc == null) {
-            hint(invokingEditor, "No document for ${method.name}()")
+        if (calleeFile == null) {
+            hint(invokingEditor, "No file for ${method.name}()")
+            return
+        }
+        val pdm = PsiDocumentManager.getInstance(project)
+        val calleeDoc = pdm.getDocument(calleeFile)
+            ?: calleeFile.viewProvider.document
+            ?: EditorFactory.getInstance().createDocument(calleeFile.text)
+        // A frame whose document PsiDocumentManager can't map back to PSI (decompiled mirror)
+        // must carry its PsiFile along, or caret→PSI inside it is dead and recursion with it.
+        val pinnedPsiFile = if (pdm.getPsiFile(calleeDoc) != null) null else calleeFile
+        if (calleeDoc.textLength < method.textRange.endOffset) {
+            hint(invokingEditor, "Source for ${method.name}() is out of sync")
             return
         }
 
@@ -78,11 +98,13 @@ object InlineExpansionService {
         val doc = invokingEditor.document
         val callRange = doc.createRangeMarker(call.textRange)
         val methodRange = calleeDoc.createRangeMarker(method.textRange).apply { isGreedyToRight = true }
-        val methodPtr = SmartPointerManager.getInstance(project).createSmartPsiElementPointer(method)
+        val methodPtr = SmartPointerManager.getInstance(project).createSmartPsiElementPointer(method, calleeFile)
 
-        val node = ExpansionNode(state, frame, invokingEditor, callRange, methodPtr, methodRange)
+        val node = ExpansionNode(state, frame, invokingEditor, callRange, methodPtr, methodRange, pinnedPsiFile)
 
-        val fragEditor = FragmentEditorFactory.createFragmentViewer(project, calleeDoc, calleeVFile, method.textRange)
+        val fragEditor = FragmentEditorFactory.createFragmentViewer(
+            project, calleeDoc, calleeFile.virtualFile, calleeFile.fileType, method.textRange,
+        )
         fragEditor.putUserData(Keys.FRAME_NODE, node)
         node.fragmentEditor = fragEditor
         FragmentEditorFactory.redirectWheelTo(fragEditor, state.hostEditor)
@@ -158,10 +180,27 @@ object InlineExpansionService {
         }, node)
     }
 
-    private fun findCallAtCaret(editor: Editor, project: Project): PsiCallExpression? {
+    /**
+     * The best readable form of a resolved method: itself or its source (attached -sources /
+     * src.zip via navigationElement), else the decompiled/stub mirror of a compiled method.
+     */
+    private fun sourceForm(resolved: PsiMethod): PsiMethod? {
+        val nav = resolved.navigationElement as? PsiMethod ?: resolved
+        if (nav.body != null) return nav
+        val mirror = (resolved as? PsiCompiledElement)?.mirror as? PsiMethod
+        if (mirror?.body != null) return mirror
+        return null
+    }
+
+    internal fun psiFileFor(editor: Editor, project: Project): PsiFile? {
+        editor.getUserData(Keys.FRAME_NODE)?.pinnedPsiFile?.let { return it }
         val pdm = PsiDocumentManager.getInstance(project)
         pdm.commitDocument(editor.document)
-        val psiFile = pdm.getPsiFile(editor.document) ?: return null
+        return pdm.getPsiFile(editor.document)
+    }
+
+    private fun findCallAtCaret(editor: Editor, project: Project): PsiCallExpression? {
+        val psiFile = psiFileFor(editor, project) ?: return null
         val offset = editor.caretModel.offset
         val el = psiFile.findElementAt(offset)
             ?: (if (offset > 0) psiFile.findElementAt(offset - 1) else null)
