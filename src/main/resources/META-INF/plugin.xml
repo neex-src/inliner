@@ -43,5 +43,11 @@
                 description="Collapse every line that doesn't touch a focused symbol into an expandable '⋯ N lines' region">
             <keyboard-shortcut keymap="$default" first-keystroke="shift alt SEMICOLON"/>
         </action>
+        <action id="com.neex.inliner.FocusTransitive"
+                class="com.neex.inliner.focus.FocusTransitiveAction"
+                text="Toggle Transitive Focus"
+                description="Follow value flow: highlight not just the tracked symbols but everything derived from them and everything that writes into them">
+            <keyboard-shortcut keymap="$default" first-keystroke="alt QUOTE"/>
+        </action>
     </actions>
 </idea-plugin>

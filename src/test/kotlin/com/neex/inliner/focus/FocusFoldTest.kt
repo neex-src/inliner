@@ -69,4 +69,47 @@ class FocusFoldTest : LightJavaCodeInsightFixtureTestCase() {
         FocusService.toggleAtCaret(myFixture.editor, project) // untrack alpha
         assertTrue(FocusFolder.ourRegions(myFixture.editor).isEmpty())
     }
+
+    private val flowSample = """
+        class W {
+            void caller() {
+                int va<caret>lue = 2;
+                int noise = 9;
+                int r = grow(value);
+                System.out.println(r);
+            }
+            int grow(int x) {
+                int result = x + 1;
+                int junk = 3;
+                return result + junk;
+            }
+        }
+    """.trimIndent()
+
+    fun testTransitiveFoldNeverHidesTouchedLines() {
+        myFixture.configureByText("W.java", flowSample)
+        FocusService.toggleAtCaret(myFixture.editor, project)
+        val set = myFixture.editor.getUserData(FocusKeys.FOCUS_SET)!!
+        set.transitive = true
+        set.foldToFocus = true
+        FocusService.refreshAll(set)
+
+        // the invariant: every touched line (direct or propagated) stays visible
+        val touches = FocusHighlighter.computeTouches(set, myFixture.file, myFixture.editor.document)
+        for (line in touches.allTouchedLines()) {
+            assertFalse("touched line $line must never fold", lineFolded(line))
+        }
+        // and concretely: the propagated println line is visible, pure noise is not
+        assertFalse(lineFolded(lineOf("System.out.println(r)")))
+        assertTrue(lineFolded(lineOf("int noise = 9")))
+    }
+
+    fun testWithoutTransitiveDownstreamLineFolds() {
+        myFixture.configureByText("W.java", flowSample)
+        FocusService.toggleAtCaret(myFixture.editor, project)
+        val set = myFixture.editor.getUserData(FocusKeys.FOCUS_SET)!!
+        set.foldToFocus = true
+        FocusService.refreshAll(set)
+        assertTrue("downstream line folds in direct-only mode", lineFolded(lineOf("System.out.println(r)")))
+    }
 }

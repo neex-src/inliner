@@ -56,6 +56,9 @@ class FocusSet(val hostEditor: Editor, val project: Project) : Disposable {
     val entries = mutableListOf<FocusEntry>()
     var foldToFocus = false
 
+    /** Follow value flow (assignments, returns, call args) instead of just direct references. */
+    var transitive = false
+
     /** Expansion frames that already carry a dispose-time cleanup for derived entries. */
     val cleanupNodes = mutableSetOf<ExpansionNode>()
 
