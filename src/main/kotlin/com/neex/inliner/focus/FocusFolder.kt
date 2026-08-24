@@ -29,7 +29,8 @@ object FocusFolder {
             .distinct()
         if (scopes.isEmpty()) return
 
-        val keep = HashSet<Int>(touches.lineColors.keys)
+        // Invariant: no line the focus touches — directly or through flow — may ever fold.
+        val keep = HashSet<Int>(touches.allTouchedLines())
 
         // control-flow headers above every touched occurrence
         for (offset in touches.touchOffsets) {
