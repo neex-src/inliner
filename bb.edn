@@ -1,0 +1,5 @@
+{:paths ["bb"]
+ :tasks
+ {ijdev {:doc "ijdev <cmd> with the sandbox IDE on a hidden Xvnc display (:77): status, start, eval, hotswap, reload, shot, errors, stop …"
+         :requires ([ide])
+         :task (apply ide/-main *command-line-args*)}}}
