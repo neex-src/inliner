@@ -170,7 +170,7 @@ class FrameCaretTest : LightJavaCodeInsightFixtureTestCase() {
         assertFalse(frame.editorKind == EditorKind.PREVIEW || frame.editorKind == EditorKind.CONSOLE)
         assertEquals(myFixture.file.virtualFile, frame.virtualFile)
 
-        val data = RecordingSink().also { FrameDataProvider(node).uiDataSnapshot(it) }
+        val data = RecordingSink().also { FramePanel(node).uiDataSnapshot(it) }
         assertSame("not the host's file editor", frame, (data[PlatformCoreDataKeys.FILE_EDITOR] as TextEditor).editor)
         assertEquals(myFixture.file.virtualFile, data[CommonDataKeys.VIRTUAL_FILE])
         assertEquals(myFixture.file, data[CommonDataKeys.PSI_FILE])

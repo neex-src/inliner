@@ -1,6 +1,5 @@
 package com.neex.inliner
 
-import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
@@ -102,8 +101,7 @@ object FragmentEditorFactory {
         return panel
     }
 
-    fun createWrapper(header: JComponent, editorComponent: JComponent, leftIndentPx: Int, data: UiDataProvider): JPanel {
-        val inner = object : JPanel(BorderLayout()), UiDataProvider by data {}
+    fun createWrapper(header: JComponent, editorComponent: JComponent, leftIndentPx: Int, inner: JPanel): JPanel {
         inner.add(header, BorderLayout.NORTH)
         inner.add(editorComponent, BorderLayout.CENTER)
         inner.border = BorderFactory.createLineBorder(JBColor.border())

@@ -164,24 +164,35 @@ object FrameCaret {
      * Keeps a frame's caret (and selection) on the method: End, Ctrl+End, a search hit or a
      * click on the clipped margins would otherwise land in the hidden rest of the file. Keeps
      * the caret in view while the frame has the focus, and forgets the column on moves not ours.
+     *
+     * Not while a [FrameEditSession] runs: the flow owns the caret then (an in-place template
+     * parks it at the start of its scope, which may be the whole file, and builds from there).
+     * The session clamps once more when it ends.
      */
     fun install(node: ExpansionNode) {
         node.fragmentEditor.caretModel.addCaretListener(object : CaretListener {
             override fun caretPositionChanged(event: CaretEvent) {
                 val editor = node.fragmentEditor
-                if (node.disposed || !node.methodRange.isValid) return
+                if (node.disposed) return
                 if (!moving) node.hostState.desiredX = null
-                val doc = editor.document
-                val lo = doc.getLineStartOffset(doc.getLineNumber(node.methodRange.startOffset))
-                val hi = node.methodRange.endOffset
-                val caret = event.caret ?: return
-                if (caret.offset !in lo..hi) caret.moveToOffset(caret.offset.coerceIn(lo, hi))
-                if (caret.hasSelection() && (caret.selectionStart < lo || caret.selectionEnd > hi)) {
-                    caret.setSelection(caret.selectionStart.coerceIn(lo, hi), caret.selectionEnd.coerceIn(lo, hi))
-                }
+                if (FrameEditSession.isOpen(editor)) return
+                clamp(node)
                 if (!moving && editor.contentComponent.hasFocus()) reveal(editor)
             }
         }, node)
+    }
+
+    /** Puts [node]'s caret and selection back on the method if they left it. */
+    fun clamp(node: ExpansionNode) {
+        if (!node.methodRange.isValid) return
+        val doc = node.fragmentEditor.document
+        val lo = doc.getLineStartOffset(doc.getLineNumber(node.methodRange.startOffset))
+        val hi = node.methodRange.endOffset
+        val caret = node.fragmentEditor.caretModel.primaryCaret
+        if (caret.offset !in lo..hi) caret.moveToOffset(caret.offset.coerceIn(lo, hi))
+        if (caret.hasSelection() && (caret.selectionStart < lo || caret.selectionEnd > hi)) {
+            caret.setSelection(caret.selectionStart.coerceIn(lo, hi), caret.selectionEnd.coerceIn(lo, hi))
+        }
     }
 
     /** The host's half of the column memory: its own caret moves forget the column too. */
