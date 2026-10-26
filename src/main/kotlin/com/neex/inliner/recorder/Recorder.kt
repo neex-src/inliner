@@ -79,11 +79,12 @@ class Recorder(
         return out + returns.filter { it.codeIndex() !in byIndex }.map { ArmPoint(it, startsLine = false, returns = true) }
     }
 
+    /** [paused]: the user stopped [thread] here — record it even though it counts as busy. */
     @Synchronized
-    fun onHit(thread: ThreadReference, location: Location): Verdict {
+    fun onHit(thread: ThreadReference, location: Location, paused: Boolean = false): Verdict {
         val point = points[location] ?: return Verdict.KEEP
         if (truncated) return Verdict.ALL_DONE
-        if (busy(thread)) return Verdict.KEEP
+        if (!paused && busy(thread)) return Verdict.KEEP
         val frames = try {
             thread.frames()
         } catch (_: IncompatibleThreadStateException) {
@@ -141,6 +142,13 @@ class Recorder(
         }
         Site(location.declaringType().name(), method.name(), method.signature(), location.lineNumber(), path)
     }
+
+    /** The hit the last [onHit] kept, if any. */
+    val lastHit: Hit?
+        @Synchronized get() = hits.lastOrNull()
+
+    val hitCount: Int
+        @Synchronized get() = hits.size
 
     @Synchronized
     fun recording(): Recording = Recording(LinkedHashMap(threads), ArrayList(hits), LinkedHashSet(exhausted), truncated)
