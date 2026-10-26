@@ -68,6 +68,20 @@ class InlineExpansionTest : LightJavaCodeInsightFixtureTestCase() {
         assertFalse("stock Esc should still clear the selection", myFixture.editor.selectionModel.hasSelection())
     }
 
+    fun testEscapeClearsSelectionBeforeCollapsing() {
+        myFixture.configureByText("A.java", sample)
+        InlineExpansionService.toggle(myFixture.editor, project)
+        val state = myFixture.editor.getUserData(Keys.HOST_STATE)!!
+        myFixture.editor.selectionModel.setSelection(0, 5)
+
+        myFixture.performEditorAction("EditorEscape")
+        assertFalse(myFixture.editor.selectionModel.hasSelection())
+        assertEquals("first Esc only clears the selection", 1, state.creationOrder.size)
+
+        myFixture.performEditorAction("EditorEscape")
+        assertTrue(state.creationOrder.isEmpty())
+    }
+
     fun testRecursiveExpansionAndSubtreeDisposal() {
         myFixture.configureByText("A.java", sample)
         InlineExpansionService.toggle(myFixture.editor, project)

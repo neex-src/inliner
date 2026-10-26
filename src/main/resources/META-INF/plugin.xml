@@ -39,6 +39,24 @@
     <extensions defaultExtensionNs="com.intellij">
         <editorActionHandler action="EditorEscape"
                              implementationClass="com.neex.inliner.InlineEscapeHandler"
+                             order="last"/>
+        <editorActionHandler action="EditorUp"
+                             implementationClass="com.neex.inliner.FrameUpHandler"
+                             order="first"/>
+        <editorActionHandler action="EditorDown"
+                             implementationClass="com.neex.inliner.FrameDownHandler"
+                             order="first"/>
+        <editorActionHandler action="EditorLeft"
+                             implementationClass="com.neex.inliner.FrameLeftHandler"
+                             order="first"/>
+        <editorActionHandler action="EditorRight"
+                             implementationClass="com.neex.inliner.FrameRightHandler"
+                             order="first"/>
+        <editorActionHandler action="EditorPageUp"
+                             implementationClass="com.neex.inliner.FramePageUpHandler"
+                             order="first"/>
+        <editorActionHandler action="EditorPageDown"
+                             implementationClass="com.neex.inliner.FramePageDownHandler"
                              order="first"/>
     </extensions>
 

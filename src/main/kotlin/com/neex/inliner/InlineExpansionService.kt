@@ -8,7 +8,6 @@ import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.editor.ex.util.EditorUtil
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
@@ -176,7 +175,8 @@ object InlineExpansionService {
         val hostEditor = frame?.hostState?.hostEditor ?: invokingEditor
         val state = hostEditor.getUserData(Keys.HOST_STATE) ?: HostState(hostEditor).also {
             hostEditor.putUserData(Keys.HOST_STATE, it)
-            EditorUtil.disposeWithEditor(hostEditor, it)
+            InlinerLifetime.bind(hostEditor, it)
+            FrameCaret.install(it)
         }
 
         val doc = invokingEditor.document
@@ -195,7 +195,7 @@ object InlineExpansionService {
 
         val header = FragmentEditorFactory.createHeader(breadcrumbText(node, method)) { collapse(node) }
         node.wrapper = FragmentEditorFactory.createWrapper(
-            header, fragEditor.component, callIndentPx(invokingEditor, callRange.startOffset),
+            header, fragEditor.component, callIndentPx(invokingEditor, callRange.startOffset), FrameDataProvider(node),
         )
 
         val inlayOffset = doc.getLineEndOffset(doc.getLineNumber(callRange.endOffset))
@@ -214,6 +214,7 @@ object InlineExpansionService {
         Disposer.register(frame ?: state, node)
 
         installInvalidationListeners(node, inlay)
+        FrameCaret.install(node)
         relayoutUp(node)
 
         // Focus integration: propagate tracked arguments into the new frame and paint it.
