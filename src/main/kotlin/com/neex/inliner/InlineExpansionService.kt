@@ -2,7 +2,6 @@ package com.neex.inliner
 
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
@@ -112,8 +111,9 @@ object InlineExpansionService {
                     .setTitle("Implementations of ${declaration.name}()")
                     .setRenderer(textListCellRenderer { it?.label })
                     .setNamerForFiltering { it.label }
-                    // a Swing callback: no lock held on 262, and expanding reads PSI and edits markup
-                    .setItemChosenCallback { WriteIntentReadAction.run { inline(it) } }
+                    // a Swing callback: no lock held on 262, and expanding reads PSI and edits markup;
+                    // invokeLater gives it the write-intent lock (WriteIntentReadAction is experimental)
+                    .setItemChosenCallback { ApplicationManager.getApplication().invokeLater { inline(it) } }
                     .createPopup()
                     .showInBestPositionFor(invokingEditor)
             }

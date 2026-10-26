@@ -1,13 +1,37 @@
 <idea-plugin>
     <id>com.neex.inliner</id>
     <name>Inline Reading Mode</name>
-    <vendor email="dev@neex.dev">NEEX</vendor>
+    <vendor url="https://neex.dev" email="dev@neex.dev">NEEX</vendor>
     <description><![CDATA[
-        Read code without jumping between files: put the caret on a method call and press
-        <b>Alt+,</b> to show the callee's body inline below the call — read-only,
-        syntax-highlighted, recursive (expand calls inside the expanded body too).
-        Press the shortcut again, <b>Esc</b>, or click the header to collapse.
+        <p>Read code without jumping between files. Put the caret on a method call and press
+        <b>Alt+,</b>: the callee's body appears inline below the call, read-only and
+        syntax-highlighted. It works recursively — expand calls inside the expanded body too —
+        and the file you are in stays fully editable. Collapse with the same shortcut,
+        <b>Esc</b>, or by clicking the frame header. Interface and abstract calls inline the
+        only implementation or let you pick one; library calls show attached sources or the
+        decompiled body.</p>
+
+        <p>Then pick the variables you care about and read only the code that touches them:</p>
+        <ul>
+          <li><b>Alt+.</b> — track the parameter or local variable at the caret; every line
+          that touches it gets its own color.</li>
+          <li><b>Alt+;</b> — search and manage tracked symbols: parameters, locals and fields
+          of the current method.</li>
+          <li><b>Alt+'</b> — follow the value, not the name: everything derived from a tracked
+          variable (assignments, call arguments, returns) and everything written into it.</li>
+          <li><b>Alt+Shift+;</b> — fold every line that touches no tracked symbol, so a
+          400-line method shrinks to the lines that matter.</li>
+        </ul>
+        <p>A tracked variable passed as an argument is tracked as the parameter inside the
+        inlined frame, so one value can be followed through the whole call chain.</p>
+
+        <p>Java only. Made by <a href="https://neex.dev">NEEX</a>.</p>
     ]]></description>
+
+    <change-notes><![CDATA[
+        <p>0.1.0 — first release: inline expansion (recursive, implementation picker, library
+        sources), focus tracking, value flow, fold to focus, tracking into inlined frames.</p>
+    ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.java</depends>
