@@ -195,7 +195,7 @@ object InlineExpansionService {
 
         val header = FragmentEditorFactory.createHeader(breadcrumbText(node, method)) { collapse(node) }
         node.wrapper = FragmentEditorFactory.createWrapper(
-            header, fragEditor.component, callIndentPx(invokingEditor, callRange.startOffset), FrameDataProvider(node),
+            header, fragEditor.component, callIndentPx(invokingEditor, callRange.startOffset), FramePanel(node),
         )
 
         val inlayOffset = doc.getLineEndOffset(doc.getLineNumber(callRange.endOffset))

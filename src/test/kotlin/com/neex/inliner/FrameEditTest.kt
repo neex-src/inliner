@@ -8,14 +8,17 @@ import com.intellij.codeInsight.template.impl.TextExpression
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx
+import com.intellij.openapi.actionSystem.ex.ActionUtil
+import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.editor.EditorModificationUtil
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl
 
-class FrameIntentionsTest : LightJavaCodeInsightFixtureTestCase() {
+class FrameEditTest : LightJavaCodeInsightFixtureTestCase() {
 
     private val sample = """
         class A {
@@ -105,7 +108,7 @@ class FrameIntentionsTest : LightJavaCodeInsightFixtureTestCase() {
         val platform = ActionManager.getInstance().getAction("ShowIntentionActions")
         val ours = ActionManager.getInstance().getAction("com.neex.inliner.FrameIntentions")
         val both = listOf<AnAction>(platform, ours)
-        val promoter = FrameIntentionsPromoter()
+        val promoter = FrameEditPromoter()
         assertEquals(listOf(ours, platform), promoter.promote(both, SimpleDataContext.getSimpleContext(CommonDataKeys.EDITOR, frame)))
         assertNull(promoter.promote(both, SimpleDataContext.getSimpleContext(CommonDataKeys.EDITOR, myFixture.editor)))
     }
@@ -118,5 +121,21 @@ class FrameIntentionsTest : LightJavaCodeInsightFixtureTestCase() {
         assertEquals("the flow owns the caret", 0, frame.caretModel.offset)
         typeInto(frame)
         assertTrue(frame.caretModel.offset >= frame.document.getLineStartOffset(frame.document.getLineNumber(node.methodRange.startOffset)))
+    }
+
+    fun testUndoInAFrameUndoesTheIntentionAppliedThere() {
+        val frame = frameOnDeclaration()
+        FrameEditSession.open(FrameRows.frameOf(frame)!!)
+        val action = intentions(frame).single { it.text == split }
+        ShowIntentionActionsHandler.chooseActionAndInvoke(myFixture.file, frame, action, action.text)
+        typeInto(frame)
+        assertTrue(frame.isViewer)
+        val context = SimpleDataContext.builder()
+            .add(CommonDataKeys.PROJECT, project)
+            .add(CommonDataKeys.EDITOR, frame)
+            .add(PlatformCoreDataKeys.FILE_EDITOR, TextEditorProvider.getInstance().getTextEditor(frame))
+            .build()
+        ActionUtil.invokeAction(ActionManager.getInstance().getAction("com.neex.inliner.FrameUndo"), context, "keyboard", null, null)
+        assertTrue(frame.document.text.contains("int x = 7;"))
     }
 }

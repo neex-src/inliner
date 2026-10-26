@@ -14,13 +14,14 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 
 /**
- * A frame that takes edits for one explicit flow — Alt+Enter, and whatever the chosen intention
- * goes on to do — and is a viewer again as soon as the user acts on it outside that flow.
+ * A frame that takes edits for one explicit flow — Alt+Enter and whatever the chosen intention
+ * goes on to do, an Undo — and is a viewer again as soon as the user acts on it outside that flow.
  *
  * A frame is a viewer so typing can't edit the callee by accident, and viewer is the only guard
  * the platform has per editor (document writability is per file: it would lock the real file's
- * editor too). But the platform also refuses intentions in viewers, both when it lists them and
- * when the chosen one runs. So the frame stops being a viewer for the flow.
+ * editor too). But the platform also turns off what edits on purpose in a viewer: intentions
+ * (both listing them and running the chosen one), undo and redo. So the frame stops being a
+ * viewer for the flow ([FrameEditAction] opens it).
  *
  * The flow has no reliable end to wait for: the chosen intention runs after the popup closes and
  * often goes on later still (in-place introduce and rename start their template from a later
@@ -32,6 +33,18 @@ import com.intellij.openapi.util.Key
 class FrameEditSession private constructor(private val node: ExpansionNode) : Disposable {
 
     private val editor get() = node.fragmentEditor
+
+    /** True while [FrameEditAction] runs the platform's action: that action is the flow itself. */
+    private var dispatching = false
+
+    fun dispatching(run: () -> Unit) {
+        dispatching = true
+        try {
+            run()
+        } finally {
+            dispatching = false
+        }
+    }
 
     private fun start() {
         editor.isViewer = false
@@ -48,7 +61,7 @@ class FrameEditSession private constructor(private val node: ExpansionNode) : Di
     }
 
     private fun userActs() {
-        if (!flowIsUp()) Disposer.dispose(this)
+        if (!dispatching && !flowIsUp()) Disposer.dispose(this)
     }
 
     private fun flowIsUp(): Boolean {
@@ -69,12 +82,12 @@ class FrameEditSession private constructor(private val node: ExpansionNode) : Di
         private val SESSION: Key<FrameEditSession> = Key.create("inliner.frameEditSession")
 
         /** [node]'s frame open for edits, until the user next acts on it outside the flow. */
-        fun open(node: ExpansionNode) {
-            if (node.disposed || node.pinnedPsiFile != null) return
-            if (node.fragmentEditor.getUserData(SESSION) != null) return
-            val session = FrameEditSession(node)
-            Disposer.register(node, session)
-            session.start()
+        fun open(node: ExpansionNode): FrameEditSession {
+            node.fragmentEditor.getUserData(SESSION)?.let { return it }
+            return FrameEditSession(node).also {
+                Disposer.register(node, it)
+                it.start()
+            }
         }
 
         fun isOpen(editor: Editor): Boolean = editor.getUserData(SESSION) != null

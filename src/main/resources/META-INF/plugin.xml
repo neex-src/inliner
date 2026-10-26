@@ -41,7 +41,7 @@
                                  instance="com.neex.inliner.focus.FocusConfigurable"
                                  id="com.neex.inliner.settings"
                                  displayName="Inline Reading Mode"/>
-        <actionPromoter implementation="com.neex.inliner.FrameIntentionsPromoter"/>
+        <actionPromoter implementation="com.neex.inliner.FrameEditPromoter"/>
         <editorActionHandler action="EditorEscape"
                              implementationClass="com.neex.inliner.InlineEscapeHandler"
                              order="last"/>
@@ -77,6 +77,16 @@
                 use-shortcut-of="ShowIntentionActions"
                 text="Show Intention Actions in Inlined Frame"
                 description="Intentions and quick fixes for the inlined method at the frame's caret; the chosen one edits the method's file"/>
+        <action id="com.neex.inliner.FrameUndo"
+                class="com.neex.inliner.FrameUndoAction"
+                use-shortcut-of="$Undo"
+                text="Undo in Inlined Frame"
+                description="Undo in the inlined method's file, as in its own editor"/>
+        <action id="com.neex.inliner.FrameRedo"
+                class="com.neex.inliner.FrameRedoAction"
+                use-shortcut-of="$Redo"
+                text="Redo in Inlined Frame"
+                description="Redo in the inlined method's file, as in its own editor"/>
         <action id="com.neex.inliner.FocusToggle"
                 class="com.neex.inliner.focus.FocusToggleAction"
                 text="Toggle Focus on Symbol at Caret"

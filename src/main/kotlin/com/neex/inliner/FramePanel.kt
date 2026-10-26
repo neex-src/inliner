@@ -8,17 +8,21 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.openapi.vfs.VirtualFile
+import java.awt.BorderLayout
+import javax.swing.JPanel
 
 /**
- * The data context of a frame. A frame's component sits inside the host editor's, so without
- * this every action in a frame sees the HOST's file editor and file: Find Usages and the like
- * resolve the frame's caret against the wrong file, or give up. Here the frame answers as an
+ * A frame's panel (header above, the frame's editor below), and the frame's data context.
+ *
+ * A frame's component sits inside the host editor's, so without this every action in a frame
+ * sees the HOST's file editor and file: Find Usages and the like resolve the frame's caret
+ * against the wrong file, or give up. Here the frame answers as an
  * editor of the callee's file. Rules derive the rest (PSI_ELEMENT, LANGUAGE, …) from these.
  *
  * NAVIGATABLE is the callee file at the frame's caret: F4 (Jump to Source) opens the real file
  * right there — frames are read-only, editing happens in the file.
  */
-class FrameDataProvider(private val node: ExpansionNode) : UiDataProvider {
+class FramePanel(private val node: ExpansionNode) : JPanel(BorderLayout()), UiDataProvider {
 
     override fun uiDataSnapshot(sink: DataSink) {
         if (node.disposed) return
