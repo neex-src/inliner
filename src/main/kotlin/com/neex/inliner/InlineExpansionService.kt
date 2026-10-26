@@ -8,7 +8,6 @@ import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.editor.ex.util.EditorUtil
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
@@ -176,7 +175,7 @@ object InlineExpansionService {
         val hostEditor = frame?.hostState?.hostEditor ?: invokingEditor
         val state = hostEditor.getUserData(Keys.HOST_STATE) ?: HostState(hostEditor).also {
             hostEditor.putUserData(Keys.HOST_STATE, it)
-            EditorUtil.disposeWithEditor(hostEditor, it)
+            InlinerLifetime.bind(hostEditor, it)
             FrameCaret.install(it)
         }
 

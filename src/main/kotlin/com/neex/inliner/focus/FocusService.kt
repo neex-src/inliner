@@ -4,7 +4,6 @@ import com.intellij.codeInsight.hint.HintManager
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
-import com.intellij.openapi.editor.ex.util.EditorUtil
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiField
@@ -17,6 +16,7 @@ import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.util.SingleAlarm
 import com.neex.inliner.ExpansionNode
 import com.neex.inliner.InlineExpansionService
+import com.neex.inliner.InlinerLifetime
 import com.neex.inliner.Keys
 
 object FocusService {
@@ -30,7 +30,7 @@ object FocusService {
         if (set == null && create) {
             set = FocusSet(host, project)
             host.putUserData(FocusKeys.FOCUS_SET, set)
-            EditorUtil.disposeWithEditor(host, set)
+            InlinerLifetime.bind(host, set)
             installRefreshListener(set)
         }
         return set
