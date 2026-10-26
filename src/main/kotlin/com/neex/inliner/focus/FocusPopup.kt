@@ -7,7 +7,6 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -110,23 +109,28 @@ object FocusPopup {
         }
 
         // Called from Swing listeners, which hold no lock on 262: adding creates smart pointers,
-        // refreshAll reads PSI and rewrites highlighters and folds — the lock an action would get.
-        fun act(delete: Boolean) = WriteIntentReadAction.run {
+        // refreshAll reads PSI and rewrites highlighters and folds. invokeLater runs it under the
+        // write-intent lock an action gets (WriteIntentReadAction would too, but is experimental API).
+        fun act(delete: Boolean) {
+            val item = list.selectedValue ?: return
+            if (delete && item is Item.Candidate) return
             val keep = list.selectedIndex
-            // the row to keep selected: the entry just toggled or added, so Enter again undoes it
-            val acted: FocusEntry? = when (val item = list.selectedValue) {
-                is Item.Tracked -> if (delete) {
-                    FocusService.remove(set, item.entry)
-                    null
-                } else {
-                    item.entry.enabled = !item.entry.enabled
-                    item.entry
+            ApplicationManager.getApplication().invokeLater {
+                if (set.hostEditor.isDisposed) return@invokeLater
+                // the row to keep selected: the entry just toggled or added, so Enter again undoes it
+                val acted: FocusEntry? = when (item) {
+                    is Item.Tracked -> if (delete) {
+                        FocusService.remove(set, item.entry)
+                        null
+                    } else {
+                        item.entry.enabled = !item.entry.enabled
+                        item.entry
+                    }
+                    is Item.Candidate -> FocusService.add(set, item.candidate.variable, method)
                 }
-                is Item.Candidate -> if (delete) return@run else FocusService.add(set, item.candidate.variable, method)
-                null -> return@run
+                FocusService.refreshAll(set)
+                rebuild { items -> items.indexOfFirst { it is Item.Tracked && it.entry === acted }.takeIf { it >= 0 } ?: keep }
             }
-            FocusService.refreshAll(set)
-            rebuild { items -> items.indexOfFirst { it is Item.Tracked && it.entry === acted }.takeIf { it >= 0 } ?: keep }
         }
 
         rebuild { 0 }
