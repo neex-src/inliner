@@ -30,8 +30,8 @@ class FocusFlowTest : LightJavaCodeInsightFixtureTestCase() {
 
     private fun set() = myFixture.editor.getUserData(FocusKeys.FOCUS_SET)!!
 
-    private fun touches(): FocusTouches =
-        FocusHighlighter.computeTouches(set(), myFixture.file, myFixture.editor.document)
+    private fun touches(): FocusPicture =
+        FocusPicture.of(set(), myFixture.file, myFixture.editor.document)
 
     private fun lineOf(text: String): Int =
         myFixture.editor.document.getLineNumber(myFixture.editor.document.text.indexOf(text))
@@ -42,11 +42,11 @@ class FocusFlowTest : LightJavaCodeInsightFixtureTestCase() {
         set().transitive = true
 
         val t = touches()
-        assertTrue("direct: declaration", lineOf("int value = 2") in t.lineColors)
-        assertTrue("direct: call arg", lineOf("int r = compute(value)") in t.lineColors)
-        assertTrue("propagated: r flows to shout", lineOf("int shout = r + 1") in t.propagatedLineColors)
-        assertTrue("propagated: shout printed", lineOf("System.out.println(shout)") in t.propagatedLineColors)
-        assertFalse("unrelated stays dark", lineOf("int noise = 9") in t.allTouchedLines())
+        assertTrue("direct: declaration", lineOf("int value = 2") in t.directLines)
+        assertTrue("direct: call arg", lineOf("int r = compute(value)") in t.directLines)
+        assertTrue("propagated: r flows to shout", lineOf("int shout = r + 1") in t.propagatedLines)
+        assertTrue("propagated: shout printed", lineOf("System.out.println(shout)") in t.propagatedLines)
+        assertFalse("unrelated stays dark", lineOf("int noise = 9") in t.byLine.keys)
     }
 
     fun testReturnLineReachedThroughDerivedVariable() {
@@ -56,9 +56,9 @@ class FocusFlowTest : LightJavaCodeInsightFixtureTestCase() {
         set().transitive = true
 
         val t = touches()
-        assertTrue("return line must be reached via result", lineOf("return result + junk") in t.propagatedLineColors)
-        assertTrue(lineOf("int result = twice(x)") in t.lineColors)
-        assertFalse("junk's declaration is not part of the flow", lineOf("int junk = 3") in t.allTouchedLines())
+        assertTrue("return line must be reached via result", lineOf("return result + junk") in t.propagatedLines)
+        assertTrue(lineOf("int result = twice(x)") in t.directLines)
+        assertFalse("junk's declaration is not part of the flow", lineOf("int junk = 3") in t.byLine.keys)
     }
 
     fun testBackwardContributors() {
@@ -67,9 +67,9 @@ class FocusFlowTest : LightJavaCodeInsightFixtureTestCase() {
         set().transitive = true
 
         val t = touches()
-        assertTrue("r writes into shout", lineOf("int r = compute(value)") in t.propagatedLineColors)
-        assertTrue("value writes into r writes into shout", lineOf("int value = 2") in t.propagatedLineColors)
-        assertFalse(lineOf("int noise = 9") in t.allTouchedLines())
+        assertTrue("r writes into shout", lineOf("int r = compute(value)") in t.propagatedLines)
+        assertTrue("value writes into r writes into shout", lineOf("int value = 2") in t.propagatedLines)
+        assertFalse(lineOf("int noise = 9") in t.byLine.keys)
     }
 
     fun testToggleOffIsDirectOnly() {
@@ -78,8 +78,8 @@ class FocusFlowTest : LightJavaCodeInsightFixtureTestCase() {
         assertFalse(set().transitive)
 
         val t = touches()
-        assertTrue(t.propagatedLineColors.isEmpty())
-        assertFalse(lineOf("int shout = r + 1") in t.allTouchedLines())
+        assertTrue(t.propagatedLines.isEmpty())
+        assertFalse(lineOf("int shout = r + 1") in t.byLine.keys)
     }
 
     fun testPropagatedMarksAreFlaggedNotDirect() {
@@ -88,14 +88,14 @@ class FocusFlowTest : LightJavaCodeInsightFixtureTestCase() {
         set().transitive = true
 
         val t = touches()
-        val directNames = t.idRanges.filter { it.direct }.map { rangeText(it) }.toSet()
-        val propagated = t.idRanges.filter { !it.direct }.map { rangeText(it) }.toSet()
+        val directNames = t.touches.filter { it.direct }.map { rangeText(it) }.toSet()
+        val propagated = t.touches.filter { !it.direct }.map { rangeText(it) }.toSet()
         assertTrue("value" in directNames)
         assertTrue("r" in propagated)
         assertTrue("shout" in propagated)
         assertFalse("value" in propagated)
     }
 
-    private fun rangeText(mark: IdMark): String =
-        myFixture.editor.document.getText(mark.range)
+    private fun rangeText(touch: Touch): String =
+        myFixture.editor.document.getText(touch.range)
 }

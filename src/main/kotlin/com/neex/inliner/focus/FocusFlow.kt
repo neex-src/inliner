@@ -70,11 +70,12 @@ object FocusFlow {
     }
 
     /**
-     * The root, everything downstream of it (dependents — where the value goes), and
-     * everything upstream of it (contributors — what writes into it). Root-centric on
-     * purpose: contributors' other dependents (siblings) are not included.
+     * The variables carrying [root]'s value: the root, everything downstream of it (dependents —
+     * where the value goes), and everything upstream of it (contributors — what writes into it).
+     * Root-centric on purpose: contributors' other dependents (siblings) are not included. A
+     * variable that is both (a cycle) counts as downstream.
      */
-    fun closure(edges: Edges, root: PsiVariable): Set<PsiVariable> {
+    fun trace(edges: Edges, root: PsiVariable): Map<PsiVariable, Relation> {
         fun bfs(adj: Map<PsiVariable, Set<PsiVariable>>): Set<PsiVariable> {
             val seen = mutableSetOf(root)
             val queue = ArrayDeque(listOf(root))
@@ -85,6 +86,10 @@ object FocusFlow {
             }
             return seen
         }
-        return bfs(edges.forward) + bfs(edges.backward)
+        val out = LinkedHashMap<PsiVariable, Relation>()
+        out[root] = Relation.ROOT
+        bfs(edges.forward).forEach { out.putIfAbsent(it, Relation.DOWNSTREAM) }
+        bfs(edges.backward).forEach { out.putIfAbsent(it, Relation.UPSTREAM) }
+        return out
     }
 }

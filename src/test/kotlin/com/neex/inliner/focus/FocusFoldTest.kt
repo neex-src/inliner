@@ -95,8 +95,8 @@ class FocusFoldTest : LightJavaCodeInsightFixtureTestCase() {
         FocusService.refreshAll(set)
 
         // the invariant: every touched line (direct or propagated) stays visible
-        val touches = FocusHighlighter.computeTouches(set, myFixture.file, myFixture.editor.document)
-        for (line in touches.allTouchedLines()) {
+        val picture = FocusPicture.of(set, myFixture.file, myFixture.editor.document)
+        for (line in picture.byLine.keys) {
             assertFalse("touched line $line must never fold", lineFolded(line))
         }
         // and concretely: the propagated println line is visible, pure noise is not
