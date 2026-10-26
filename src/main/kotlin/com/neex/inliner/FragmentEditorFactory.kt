@@ -1,5 +1,6 @@
 package com.neex.inliner
 
+import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
@@ -38,7 +39,11 @@ object FragmentEditorFactory {
         calleeFileType: FileType,
         methodRange: TextRange,
     ): EditorEx {
-        val editor = EditorFactory.getInstance().createViewer(calleeDoc, project, EditorKind.PREVIEW) as EditorEx
+        // UNTYPED, not PREVIEW: the platform's editor data rule (PSI_ELEMENT, LANGUAGE, MODULE, …)
+        // skips PREVIEW and CONSOLE editors, and without it Alt+F7 & co. find nothing at the caret.
+        val editor = EditorFactory.getInstance().createViewer(calleeDoc, project, EditorKind.UNTYPED) as EditorEx
+        // The rule also wants the editor's own file (createEditor(…, file, …) doesn't set it).
+        calleeVFile?.let { editor.setFile(it) }
         // A detached document (decompiled mirror) has no VirtualFile — highlight by file type.
         editor.highlighter = if (calleeVFile != null) {
             EditorHighlighterFactory.getInstance().createEditorHighlighter(project, calleeVFile)
@@ -97,8 +102,8 @@ object FragmentEditorFactory {
         return panel
     }
 
-    fun createWrapper(header: JComponent, editorComponent: JComponent, leftIndentPx: Int): JPanel {
-        val inner = JPanel(BorderLayout())
+    fun createWrapper(header: JComponent, editorComponent: JComponent, leftIndentPx: Int, data: UiDataProvider): JPanel {
+        val inner = object : JPanel(BorderLayout()), UiDataProvider by data {}
         inner.add(header, BorderLayout.NORTH)
         inner.add(editorComponent, BorderLayout.CENTER)
         inner.border = BorderFactory.createLineBorder(JBColor.border())

@@ -28,6 +28,12 @@ class HostState(val hostEditor: Editor) : Disposable {
     /** All live nodes in creation order — Esc collapses the most recent reachable one. */
     val creationOrder = mutableListOf<ExpansionNode>()
 
+    /**
+     * The x (host content coordinates) vertical caret moves aim for across the host and its
+     * frames, so a short line on the way doesn't lose the column; null = the caret's own x.
+     */
+    var desiredX: Int? = null
+
     override fun dispose() {
         // Nodes are Disposer children of this state (or of their parent node);
         // Disposer tears them down before this runs.

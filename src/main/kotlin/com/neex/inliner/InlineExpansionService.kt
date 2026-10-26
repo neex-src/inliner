@@ -177,6 +177,7 @@ object InlineExpansionService {
         val state = hostEditor.getUserData(Keys.HOST_STATE) ?: HostState(hostEditor).also {
             hostEditor.putUserData(Keys.HOST_STATE, it)
             EditorUtil.disposeWithEditor(hostEditor, it)
+            FrameCaret.install(it)
         }
 
         val doc = invokingEditor.document
@@ -195,7 +196,7 @@ object InlineExpansionService {
 
         val header = FragmentEditorFactory.createHeader(breadcrumbText(node, method)) { collapse(node) }
         node.wrapper = FragmentEditorFactory.createWrapper(
-            header, fragEditor.component, callIndentPx(invokingEditor, callRange.startOffset),
+            header, fragEditor.component, callIndentPx(invokingEditor, callRange.startOffset), FrameDataProvider(node),
         )
 
         val inlayOffset = doc.getLineEndOffset(doc.getLineNumber(callRange.endOffset))
@@ -214,6 +215,7 @@ object InlineExpansionService {
         Disposer.register(frame ?: state, node)
 
         installInvalidationListeners(node, inlay)
+        FrameCaret.install(node)
         relayoutUp(node)
 
         // Focus integration: propagate tracked arguments into the new frame and paint it.
