@@ -1,5 +1,6 @@
 package com.neex.inliner
 
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 
 class ImplPickerTest : LightJavaCodeInsightFixtureTestCase() {
@@ -38,15 +39,34 @@ class ImplPickerTest : LightJavaCodeInsightFixtureTestCase() {
             """.trimIndent(),
         )
         var offered: List<String> = emptyList()
-        InlineExpansionService.testImplPicker = { impls ->
-            offered = impls.mapNotNull { it.containingClass?.name }
-            impls.first { it.containingClass?.name == "C" }
+        InlineExpansionService.testImplPicker = { choices ->
+            offered = choices.map { it.label }
+            choices.first { it.label == "C" }
         }
         InlineExpansionService.toggle(myFixture.editor, project)
 
         assertEquals(listOf("B", "C"), offered.sorted())
         val state = myFixture.editor.getUserData(Keys.HOST_STATE)!!
         assertEquals("C", state.roots[0].methodPtr.element?.containingClass?.name)
+    }
+
+    fun testChoiceDeletedBeforePickIsNotInlined() {
+        myFixture.configureByText(
+            "G.java",
+            """
+            interface I4 { void m(); }
+            class G1 implements I4 { public void m() { int g = 1; } }
+            class G2 implements I4 { public void m() { int g = 2; } }
+            class Use4 { void u(I4 i) { i.<caret>m(); } }
+            """.trimIndent(),
+        )
+        InlineExpansionService.testImplPicker = { choices ->
+            val g2 = myFixture.findClass("G2")
+            WriteCommandAction.runWriteCommandAction(project) { g2.delete() }
+            choices.first { it.label == "G2" }
+        }
+        InlineExpansionService.toggle(myFixture.editor, project)
+        assertNull(myFixture.editor.getUserData(Keys.HOST_STATE))
     }
 
     fun testAbstractClassMethodInlinesOverride() {

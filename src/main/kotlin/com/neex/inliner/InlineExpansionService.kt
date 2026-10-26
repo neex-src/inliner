@@ -2,6 +2,7 @@ package com.neex.inliner
 
 import com.intellij.codeInsight.hint.HintManager
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
@@ -24,6 +25,7 @@ import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiModifier
 import com.intellij.psi.PsiSubstitutor
 import com.intellij.psi.SmartPointerManager
+import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.search.searches.OverridingMethodsSearch
 import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.neex.inliner.focus.FocusKeys
@@ -85,32 +87,47 @@ object InlineExpansionService {
         frame: ExpansionNode?,
         declaration: PsiMethod,
     ) {
-        val impls = ProgressManager.getInstance().runProcessWithProgressSynchronously<List<PsiMethod>, RuntimeException>(
+        val impls = ProgressManager.getInstance().runProcessWithProgressSynchronously<List<ImplChoice>, RuntimeException>(
             {
                 ApplicationManager.getApplication().runReadAction(
-                    Computable { findImplementations(declaration) },
+                    Computable { findImplementations(declaration).map(::ImplChoice) },
                 )
             },
             "Searching for Implementations…", true, project,
         )
+        fun inline(choice: ImplChoice) {
+            val method = choice.method.element
+            if (method == null) hint(invokingEditor, "${choice.label} no longer exists") else expandMethod(invokingEditor, project, call, frame, method)
+        }
         when {
             impls.isEmpty() -> hint(invokingEditor, "No implementations found for ${declaration.name}()")
-            impls.size == 1 -> expandMethod(invokingEditor, project, call, frame, impls[0])
+            impls.size == 1 -> inline(impls[0])
             else -> {
                 testImplPicker?.let { pick ->
-                    pick(impls)?.let { expandMethod(invokingEditor, project, call, frame, it) }
+                    pick(impls)?.let(::inline)
                     return
                 }
                 JBPopupFactory.getInstance()
                     .createPopupChooserBuilder(impls)
                     .setTitle("Implementations of ${declaration.name}()")
-                    .setRenderer(textListCellRenderer { m -> m?.let(::implLabel) })
-                    .setNamerForFiltering { implLabel(it) }
-                    .setItemChosenCallback { expandMethod(invokingEditor, project, call, frame, it) }
+                    .setRenderer(textListCellRenderer { it?.label })
+                    .setNamerForFiltering { it.label }
+                    // a Swing callback: no lock held on 262, and expanding reads PSI and edits markup
+                    .setItemChosenCallback { WriteIntentReadAction.run { inline(it) } }
                     .createPopup()
                     .showInBestPositionFor(invokingEditor)
             }
         }
+    }
+
+    /**
+     * A picker row. Plain data on purpose: PSI in a popup model gets read on the EDT without a
+     * read action — by the renderer, the filter and the popup's data context — and the platform
+     * reports each read as an IDE error ("Do not use PsiElement for popup model").
+     */
+    internal class ImplChoice(m: PsiMethod) {
+        val label: String = implLabel(m)
+        val method: SmartPsiElementPointer<PsiMethod> = SmartPointerManager.createPointer(m)
     }
 
     internal fun findImplementations(declaration: PsiMethod): List<PsiMethod> = try {
@@ -123,7 +140,7 @@ object InlineExpansionService {
     }
 
     /** Test seam: the popup can't run headless; tests stub the choice instead. */
-    internal var testImplPicker: ((List<PsiMethod>) -> PsiMethod?)? = null
+    internal var testImplPicker: ((List<ImplChoice>) -> ImplChoice?)? = null
 
     private fun implLabel(m: PsiMethod): String = m.containingClass?.qualifiedName ?: m.name
 
