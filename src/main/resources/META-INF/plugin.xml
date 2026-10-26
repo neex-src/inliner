@@ -41,6 +41,7 @@
                                  instance="com.neex.inliner.focus.FocusConfigurable"
                                  id="com.neex.inliner.settings"
                                  displayName="Inline Reading Mode"/>
+        <actionPromoter implementation="com.neex.inliner.FrameIntentionsPromoter"/>
         <editorActionHandler action="EditorEscape"
                              implementationClass="com.neex.inliner.InlineEscapeHandler"
                              order="last"/>
@@ -71,6 +72,11 @@
                 description="Show the called method's body inline below the call, read-only">
             <keyboard-shortcut keymap="$default" first-keystroke="alt COMMA"/>
         </action>
+        <action id="com.neex.inliner.FrameIntentions"
+                class="com.neex.inliner.FrameIntentionsAction"
+                use-shortcut-of="ShowIntentionActions"
+                text="Show Intention Actions in Inlined Frame"
+                description="Intentions and quick fixes for the inlined method at the frame's caret; the chosen one edits the method's file"/>
         <action id="com.neex.inliner.FocusToggle"
                 class="com.neex.inliner.focus.FocusToggleAction"
                 text="Toggle Focus on Symbol at Caret"
