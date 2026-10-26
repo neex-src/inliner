@@ -12,14 +12,14 @@ import com.intellij.psi.PsiTryStatement
 import com.neex.inliner.Keys
 
 /**
- * Fold-to-focus: inside every scope method, collapse each run of lines that touch no tracked
- * symbol into an expandable "⋯ N lines" region. Kept visible besides touched lines: the
- * method signature and closing brace, control-flow headers (if/loop/switch/try/catch) that
- * enclose a touched line, and the call lines of live inline expansions in this editor.
+ * Fold-to-focus: inside every scope method, collapse each run of lines the view's [FoldRule]
+ * doesn't keep into an expandable "⋯ N lines" region. Kept visible besides the rule's lines:
+ * the method signature and closing brace, control-flow headers (if/loop/switch/try/catch) that
+ * enclose a kept line, and the call lines of live inline expansions in this editor.
  */
 object FocusFolder {
 
-    fun refresh(editor: Editor, set: FocusSet, psiFile: PsiFile, touches: FocusTouches) {
+    fun refresh(editor: Editor, set: FocusSet, psiFile: PsiFile, picture: FocusPicture) {
         clear(editor)
         if (!set.foldToFocus) return
         val doc = editor.document
@@ -29,12 +29,13 @@ object FocusFolder {
             .distinct()
         if (scopes.isEmpty()) return
 
-        // Invariant: no line the focus touches — directly or through flow — may ever fold.
-        val keep = HashSet<Int>(touches.allTouchedLines())
+        // Invariant: no line the rule keeps may ever fold.
+        val kept = picture.byLine.filter { (_, touches) -> set.foldRule.keeps(touches) }
+        val keep = HashSet<Int>(kept.keys)
 
-        // control-flow headers above every touched occurrence
-        for (offset in touches.touchOffsets) {
-            var el: PsiElement? = psiFile.findElementAt(offset)
+        // control-flow headers above every kept occurrence
+        for (touch in kept.values.flatten()) {
+            var el: PsiElement? = psiFile.findElementAt(touch.range.startOffset)
             while (el != null && el !is PsiMethod && el !is PsiFile) {
                 if (isControlFlowHeader(el)) keep += doc.getLineNumber(el.textRange.startOffset)
                 el = el.parent

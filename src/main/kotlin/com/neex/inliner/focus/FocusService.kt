@@ -129,9 +129,9 @@ object FocusService {
                 FocusHighlighter.clear(editor)
                 continue
             }
-            val touches = FocusHighlighter.computeTouches(set, psiFile, editor.document)
-            FocusHighlighter.apply(editor, touches)
-            FocusFolder.refresh(editor, set, psiFile, touches)
+            val picture = FocusPicture.of(set, psiFile, editor.document)
+            FocusHighlighter.apply(editor, picture)
+            FocusFolder.refresh(editor, set, psiFile, picture)
         }
     }
 

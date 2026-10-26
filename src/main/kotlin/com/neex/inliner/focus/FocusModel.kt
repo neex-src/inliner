@@ -59,6 +59,9 @@ class FocusSet(val hostEditor: Editor, val project: Project) : Disposable {
     /** Follow value flow (assignments, returns, call args) instead of just direct references. */
     var transitive = false
 
+    /** What fold-to-focus keeps visible in this view; starts from the settings' default. */
+    var foldRule: FoldRule = FocusSettings.getInstance().foldRule
+
     /** Expansion frames that already carry a dispose-time cleanup for derived entries. */
     val cleanupNodes = mutableSetOf<ExpansionNode>()
 
