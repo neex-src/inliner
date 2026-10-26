@@ -101,7 +101,12 @@ class ValueRenderer(
             "java.lang.Double", "java.lang.Float", "java.lang.Boolean", "java.lang.Character",
         )
 
-        /** `com.example.Quote$Line` → `Quote.Line`. */
-        fun simple(name: String): String = name.substringAfterLast('.').replace('$', '.')
+        /** `com.example.Quote$Line` → `Quote.Line`; a runtime-made class by what it stands for: `Repo proxy`. */
+        fun simple(name: String): String {
+            val base = name.substringAfterLast('.')
+            if ("$$" !in base) return base.replace('$', '.')
+            val kind = if ("\$\$Lambda".toRegex().containsMatchIn(base)) "lambda" else "proxy"
+            return base.substringBefore("$$").replace('$', '.') + " " + kind
+        }
     }
 }

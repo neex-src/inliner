@@ -38,9 +38,10 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <applicationConfigurable parentId="tools"
-                                 instance="com.neex.inliner.focus.FocusConfigurable"
+                                 instance="com.neex.inliner.InlinerConfigurable"
                                  id="com.neex.inliner.settings"
                                  displayName="Inline Reading Mode"/>
+        <notificationGroup id="Inline Reading Mode" displayType="BALLOON"/>
         <actionPromoter implementation="com.neex.inliner.FrameEditPromoter"/>
         <editorActionHandler action="EditorEscape"
                              implementationClass="com.neex.inliner.InlineEscapeHandler"
@@ -116,6 +117,18 @@
                 text="Fold to Focus: Next Rule"
                 description="Switch what fold to focus keeps visible: lines that read or write a tracked value, or only lines that write one">
             <keyboard-shortcut keymap="$default" first-keystroke="shift alt QUOTE"/>
+        </action>
+        <action id="com.neex.inliner.RecordToggle"
+                class="com.neex.inliner.recorder.ide.RecordToggleAction"
+                text="Start/Stop Recording"
+                description="Record the debug session's run line by line — values and path — to replay it after the session ends">
+            <keyboard-shortcut keymap="$default" first-keystroke="shift alt D"/>
+        </action>
+        <action id="com.neex.inliner.RecordUntilReturn"
+                class="com.neex.inliner.recorder.ide.RecordUntilReturnAction"
+                text="Record Until Return"
+                description="Paused at a breakpoint: run on, recording, until this method returns">
+            <keyboard-shortcut keymap="$default" first-keystroke="shift alt U"/>
         </action>
     </actions>
 </idea-plugin>
