@@ -6,9 +6,12 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.util.Computable
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiJavaFile
 import com.intellij.ui.ColoredListCellRenderer
@@ -53,10 +56,26 @@ class FocusPopupAction : AnAction() {
 
 object FocusPopup {
 
-    private sealed class Item {
-        class Tracked(val entry: FocusEntry) : Item()
+    /** A row. Plain enough for the renderer: it runs without a read action, so it reads no PSI. */
+    internal sealed class Item {
+        class Tracked(val entry: FocusEntry, val scopeName: String?) : Item()
         class Candidate(val candidate: FocusCandidate) : Item()
     }
+
+    /**
+     * The rows for [pattern]: tracked entries first, then the untracked candidates. A non-blank
+     * pattern filters the tracked entries too. Reads PSI (smart pointers): call in a read action.
+     */
+    internal fun listing(set: FocusSet, candidates: List<FocusCandidate>, pattern: String): List<Item> {
+        val matches = FocusCandidates.nameFilter(pattern)
+        val tracked = set.entries.mapNotNull { it.ptr.element }.toSet()
+        return set.entries.filter { matches(it.name) }.map { Item.Tracked(it, it.scopePtr.element?.name) } +
+            FocusCandidates.filter(candidates, pattern).filter { it.variable !in tracked }.map { Item.Candidate(it) }
+    }
+
+    /** Typing a filter means "find one to add": select the first matching candidate, not a tracked entry. */
+    internal fun preferredIndex(items: List<Item>, pattern: String): Int =
+        if (pattern.isBlank()) 0 else items.indexOfFirst { it is Item.Candidate }.coerceAtLeast(0)
 
     fun show(editor: Editor, project: Project) {
         if (editor.getUserData(Keys.FRAME_NODE)?.pinnedPsiFile == null) {
@@ -79,32 +98,41 @@ object FocusPopup {
         list.selectionMode = ListSelectionModel.SINGLE_SELECTION
         list.cellRenderer = ItemRenderer()
 
-        fun rebuild() {
-            val items = mutableListOf<Item>()
-            set.entries.forEach { items += Item.Tracked(it) }
-            val tracked = set.entries.mapNotNull { it.ptr.element }.toSet()
-            FocusCandidates.filter(candidates, searchField.text)
-                .filter { it.variable !in tracked }
-                .forEach { items += Item.Candidate(it) }
-            val keep = list.selectedIndex
+        fun rebuild(select: (List<Item>) -> Int) {
+            val items = ApplicationManager.getApplication().runReadAction(
+                Computable { listing(set, candidates, searchField.text) },
+            )
             listModel.replaceAll(items)
-            if (items.isNotEmpty()) list.selectedIndex = keep.coerceIn(0, items.size - 1)
+            if (items.isNotEmpty()) {
+                list.selectedIndex = select(items).coerceIn(0, items.size - 1)
+                list.ensureIndexIsVisible(list.selectedIndex)
+            }
         }
 
-        fun act(delete: Boolean) {
-            when (val item = list.selectedValue) {
-                is Item.Tracked -> if (delete) FocusService.remove(set, item.entry) else item.entry.enabled = !item.entry.enabled
-                is Item.Candidate -> if (!delete) FocusService.add(set, item.candidate.variable, method)
-                null -> return
+        // Called from Swing listeners, which hold no lock on 262: adding creates smart pointers,
+        // refreshAll reads PSI and rewrites highlighters and folds — the lock an action would get.
+        fun act(delete: Boolean) = WriteIntentReadAction.run {
+            val keep = list.selectedIndex
+            // the row to keep selected: the entry just toggled or added, so Enter again undoes it
+            val acted: FocusEntry? = when (val item = list.selectedValue) {
+                is Item.Tracked -> if (delete) {
+                    FocusService.remove(set, item.entry)
+                    null
+                } else {
+                    item.entry.enabled = !item.entry.enabled
+                    item.entry
+                }
+                is Item.Candidate -> if (delete) return@run else FocusService.add(set, item.candidate.variable, method)
+                null -> return@run
             }
             FocusService.refreshAll(set)
-            rebuild()
+            rebuild { items -> items.indexOfFirst { it is Item.Tracked && it.entry === acted }.takeIf { it >= 0 } ?: keep }
         }
 
-        rebuild()
+        rebuild { 0 }
 
         searchField.addDocumentListener(object : DocumentAdapter() {
-            override fun textChanged(e: DocumentEvent) = rebuild()
+            override fun textChanged(e: DocumentEvent) = rebuild { preferredIndex(it, searchField.text) }
         })
         searchField.textEditor.addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
@@ -168,7 +196,7 @@ object FocusPopup {
                     val style = if (value.entry.enabled) SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES else SimpleTextAttributes.GRAYED_ATTRIBUTES
                     append(value.entry.name, style)
                     if (!value.entry.enabled) append("  (off)", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-                    value.entry.scopePtr.element?.name?.let { append("  in $it()", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
+                    value.scopeName?.let { append("  in $it()", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
                     if (value.entry.derived) append("  ↳ ${value.entry.parent?.name}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                 }
                 is Item.Candidate -> {

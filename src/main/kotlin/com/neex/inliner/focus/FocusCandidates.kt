@@ -46,8 +46,15 @@ object FocusCandidates {
 
     fun filter(candidates: List<FocusCandidate>, pattern: String): List<FocusCandidate> {
         if (pattern.isBlank()) return candidates
+        val matches = nameFilter(pattern)
+        return candidates.filter { matches(it.name) }
+    }
+
+    /** Fuzzy, camel-hump name match; a blank pattern matches everything. */
+    fun nameFilter(pattern: String): (String) -> Boolean {
+        if (pattern.isBlank()) return { true }
         val matcher = NameUtil.buildMatcher("*$pattern").build()
-        return candidates.filter { matcher.matches(it.name) }
+        return { matcher.matches(it) }
     }
 
     private fun declLine(v: PsiVariable): String {
