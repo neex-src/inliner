@@ -15,7 +15,10 @@ import java.io.File
  */
 object JdiRun {
 
-    class Result(val recording: Recording, val output: String)
+    class Result(val recording: Recording, val output: String, val change: Change? = null, val whatIfError: String? = null)
+
+    /** Set [name] to [text] the first time the run reaches [line] of [method], before that line runs. */
+    class WhatIfAt(val method: String, val line: Int, val name: String, val text: String)
 
     fun record(
         main: Class<*>,
@@ -23,7 +26,11 @@ object JdiRun {
         scope: RecordScope = RecordScope(listOf("recfix")),
         budget: Budget = Budget(),
         busy: (ThreadReference) -> Boolean = { false },
+        whatIf: WhatIfAt? = null,
     ): Result {
+        var change: Change? = null
+        var whatIfError: String? = null
+        var whatIfDone = false
         val launcher = Bootstrap.virtualMachineManager().defaultConnector()
         val arguments = launcher.defaultArguments()
         arguments.getValue("main").setValue((listOf(main.name) + args).joinToString(" "))
@@ -52,10 +59,21 @@ object JdiRun {
                             enable()
                         }
                     }
-                    is BreakpointEvent -> when (recorder.onHit(event.thread(), event.location())) {
-                        Verdict.LOCATION_DONE -> event.request().disable()
-                        Verdict.ALL_DONE -> requests.deleteAllBreakpoints()
-                        Verdict.KEEP -> Unit
+                    is BreakpointEvent -> {
+                        val at = event.location()
+                        if (whatIf != null && !whatIfDone && at.method().name() == whatIf.method && at.lineNumber() == whatIf.line) {
+                            whatIfDone = true
+                            try {
+                                change = WhatIf.apply(event.thread().frame(0), whatIf.name, whatIf.text)
+                            } catch (e: WhatIfException) {
+                                whatIfError = e.message
+                            }
+                        }
+                        when (recorder.onHit(event.thread(), at)) {
+                            Verdict.LOCATION_DONE -> event.request().disable()
+                            Verdict.ALL_DONE -> requests.deleteAllBreakpoints()
+                            Verdict.KEEP -> Unit
+                        }
                     }
                     is VMDisconnectEvent -> break@events
                 }
@@ -63,7 +81,7 @@ object JdiRun {
             set.resume()
         }
         vm.process().waitFor()
-        return Result(recorder.recording(), output.toString())
+        return Result(recorder.recording(change = change), output.toString(), change, whatIfError)
     }
 
     /** The directory [main] was compiled into (the test class loader reports no code source). */

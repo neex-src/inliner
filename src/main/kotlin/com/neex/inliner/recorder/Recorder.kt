@@ -133,6 +133,10 @@ class Recorder(
         return out
     }
 
+    /** The site of any location, armed or not: a recording's anchor. */
+    @Synchronized
+    fun siteAt(location: Location): Site = siteOf(location)
+
     private fun siteOf(location: Location): Site = sites.getOrPut(location) {
         val method = location.method()
         val path = try {
@@ -151,5 +155,6 @@ class Recorder(
         @Synchronized get() = hits.size
 
     @Synchronized
-    fun recording(): Recording = Recording(LinkedHashMap(threads), ArrayList(hits), LinkedHashSet(exhausted), truncated)
+    fun recording(anchor: Site? = null, change: Change? = null): Recording =
+        Recording(LinkedHashMap(threads), ArrayList(hits), LinkedHashSet(exhausted), truncated, anchor, change)
 }

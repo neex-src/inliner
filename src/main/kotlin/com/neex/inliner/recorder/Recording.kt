@@ -36,6 +36,9 @@ class Hit(
     val values: List<VarValue>,
 )
 
+/** A value set by hand before the rest of a run was recorded: a what-if. */
+data class Change(val name: String, val before: String, val after: String)
+
 /** What a recorder saw, in order. */
 class Recording(
     val threads: Map<Long, String>,
@@ -44,4 +47,8 @@ class Recording(
     val exhausted: Set<Site>,
     /** The total budget ran out: the recording ends early. */
     val truncated: Boolean,
+    /** Where a recording started from a breakpoint began: runs from the same anchor compare. */
+    val anchor: Site? = null,
+    /** The what-if this run was recorded under; null for a run as it came. */
+    val change: Change? = null,
 )

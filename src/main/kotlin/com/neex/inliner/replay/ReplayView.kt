@@ -11,6 +11,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
+import com.intellij.openapi.diff.DiffColors
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiBlockStatement
@@ -28,6 +29,7 @@ import com.neex.inliner.FrameRows
 import com.neex.inliner.focus.FocusKeys
 import com.neex.inliner.focus.FocusKind
 import com.neex.inliner.recorder.Invocation
+import com.neex.inliner.recorder.ValueRenderer
 import com.neex.inliner.recorder.VarValue
 import java.awt.Graphics
 import java.awt.Rectangle
@@ -49,8 +51,16 @@ class ReplayView(val editor: Editor) : Disposable {
     private val folds = ArrayList<FoldRegion>()
     private val highlighters = ArrayList<Pair<Editor, RangeHighlighter>>()
 
-    /** [foldNotRun]: fold away what the cursor's call didn't run, too. */
-    fun render(replay: Replay, foldNotRun: Boolean = false) {
+    /** A what-if run beside its original: paint what the [shown] run did differently. */
+    class Overlay(val comparison: Comparison, val shown: Replay) {
+        val other: Replay get() = comparison.other(shown)
+
+        /** How the other run's value reads next to this one's. */
+        val label: String get() = if (shown === comparison.variant) "was" else "what-if"
+    }
+
+    /** [foldNotRun]: fold away what the cursor's call didn't run, too. [overlay]: a comparison to paint. */
+    fun render(replay: Replay, foldNotRun: Boolean = false, overlay: Overlay? = null) {
         clear()
         val hit = replay.current
         val doc = editor.document
@@ -58,16 +68,53 @@ class ReplayView(val editor: Editor) : Disposable {
         if (line !in 0 until doc.lineCount) return
         highlighters += editor to editor.markupModel.addLineHighlighter(DebuggerColors.EXECUTIONPOINT_ATTRIBUTES, line, DebuggerColors.EXECUTION_LINE_HIGHLIGHTERLAYER)
         val call = replay.callOf(hit)
+        val otherCall = overlay?.comparison?.counterpart(call)
+        val theirs = otherCall?.let { replay.changes(it, null) }
         for ((at, changed) in replay.changes(call, hit.seq)) {
-            if (changed.isNotEmpty() && at != hit.site.line) values(editor, at - 1, changed, DebuggerColors.INLINED_VALUES_MODIFIED)
+            if (changed.isNotEmpty() && at != hit.site.line) text(editor, at - 1, versus(changed, theirs?.get(at), overlay), DebuggerColors.INLINED_VALUES_MODIFIED)
         }
+        if (overlay != null) diff(editor, replay, call, otherCall, overlay)
         values(editor, line, hit.values.filter { it.name != "this" }, DebuggerColors.INLINED_VALUES_EXECUTION_LINE)
         if (!isLambda(call)) {
             val notRun = greyNotRun(editor, line, replay.linesOf(call))
             if (foldNotRun) fold(notRun)
         }
         histories(editor, replay, call, hit.seq)
-        frames(editor, replay, call, hit.seq)
+        frames(editor, replay, call, hit.seq, overlay)
+    }
+
+    /** `name = value`, and where the other run had another value after the same line, `(was …)`. */
+    private fun versus(mine: List<VarValue>, theirs: List<VarValue>?, overlay: Overlay?): String =
+        mine.joinToString(", ") { v ->
+            val other = theirs?.firstOrNull { it.name == v.name }?.text
+            "${v.name} = ${v.text}" + if (overlay != null && other != null && other != v.text) " (${overlay.label} $other)" else ""
+        }
+
+    /**
+     * Where [call] and its counterpart went different ways: lines only this run ran in the diff's
+     * inserted color, lines only the other ran in its deleted color (a call only this run made:
+     * all inserted); at the stop where the runs part, where the other went instead.
+     */
+    private fun diff(target: Editor, replay: Replay, call: Invocation, other: Invocation?, overlay: Overlay) {
+        val mine = replay.linesOf(call)
+        val theirs = other?.let(replay::linesOf).orEmpty()
+        val doc = target.document
+        for (line in mine - theirs) if (line - 1 in 0 until doc.lineCount) {
+            highlighters += target to target.markupModel.addLineHighlighter(DiffColors.DIFF_INSERTED, line - 1, DIFF_LAYER)
+        }
+        for (line in theirs - mine) if (line - 1 in 0 until doc.lineCount) {
+            highlighters += target to target.markupModel.addLineHighlighter(DiffColors.DIFF_DELETED, line - 1, DIFF_LAYER)
+        }
+        val parting = overlay.comparison.divergence(overlay.shown) ?: return
+        if (overlay.shown.callOf(parting) !== call) return
+        val elsewhere = overlay.comparison.divergence(overlay.other)?.site
+        val where = when {
+            elsewhere == null -> "it had ended"
+            elsewhere.className == parting.site.className && elsewhere.methodName == parting.site.methodName -> "line ${elsewhere.line}"
+            else -> "${ValueRenderer.simple(elsewhere.className)}.${elsewhere.methodName}:${elsewhere.line}"
+        }
+        val who = if (overlay.shown === overlay.comparison.variant) "the original" else "the what-if"
+        text(target, parting.site.line - 1, "⇠ the runs part here: $who was at $where", DebuggerColors.INLINED_VALUES_EXECUTION_LINE)
     }
 
     /**
@@ -115,13 +162,16 @@ class ReplayView(val editor: Editor) : Disposable {
     }
 
     /** The frames of [parent] whose line made a recorded call of their method from [call]. */
-    private fun frames(parent: Editor, replay: Replay, call: Invocation, cursor: Int) {
+    private fun frames(parent: Editor, replay: Replay, call: Invocation, cursor: Int, overlay: Overlay?) {
         for (node in FrameRows.framesIn(parent)) {
             val child = callOf(node, call, cursor) ?: continue
             val frame = node.fragmentEditor
+            val otherChild = overlay?.comparison?.counterpart(child)
+            val theirs = otherChild?.let { replay.changes(it, null) }
             for ((at, changed) in replay.changes(child, null)) {
-                if (changed.isNotEmpty()) values(frame, at - 1, changed, DebuggerColors.INLINED_VALUES_MODIFIED)
+                if (changed.isNotEmpty()) text(frame, at - 1, versus(changed, theirs?.get(at), overlay), DebuggerColors.INLINED_VALUES_MODIFIED)
             }
+            if (overlay != null) diff(frame, replay, child, otherChild, overlay)
             val first = child.hits.firstOrNull() ?: continue
             if (node.methodRange.isValid) {
                 val signature = frame.document.getLineNumber(node.methodRange.startOffset)
@@ -129,7 +179,7 @@ class ReplayView(val editor: Editor) : Disposable {
             }
             if (!isLambda(child)) greyNotRun(frame, first.site.line - 1, replay.linesOf(child))
             histories(frame, replay, child, null)
-            frames(frame, replay, child, cursor)
+            frames(frame, replay, child, cursor, overlay)
         }
     }
 
@@ -230,5 +280,8 @@ class ReplayView(val editor: Editor) : Disposable {
     private companion object {
         const val MAX = 160
         const val FOLDED = "⋯ didn't run"
+
+        /** Under the execution line and the selection, over the caret row. */
+        const val DIFF_LAYER = HighlighterLayer.CARET_ROW + 1
     }
 }

@@ -13,7 +13,7 @@ import java.io.OutputStream
 object RecordingFile {
 
     private const val MAGIC = 0x494e4c52 // "INLR"
-    private const val VERSION = 1
+    private const val VERSION = 2
 
     fun write(recording: Recording, out: OutputStream) {
         val strings = LinkedHashMap<String, Int>()
@@ -28,6 +28,8 @@ object RecordingFile {
             hit.values.forEach { id(it.name); id(it.text) }
         }
         recording.exhausted.forEach(::site)
+        recording.anchor?.let(::site)
+        recording.change?.let { id(it.name); id(it.before); id(it.after) }
         sites.keys.forEach { listOfNotNull(it.className, it.methodName, it.signature, it.sourcePath).forEach(::id) }
 
         val d = DataOutputStream(out.buffered())
@@ -54,6 +56,9 @@ object RecordingFile {
         d.writeInt(recording.exhausted.size)
         recording.exhausted.forEach { d.writeInt(site(it)) }
         d.writeBoolean(recording.truncated)
+        d.writeInt(recording.anchor?.let(::site) ?: -1)
+        d.writeBoolean(recording.change != null)
+        recording.change?.let { d.writeInt(id(it.name)); d.writeInt(id(it.before)); d.writeInt(id(it.after)) }
         d.flush()
     }
 
@@ -61,7 +66,7 @@ object RecordingFile {
         val d = DataInputStream(input.buffered())
         if (d.readInt() != MAGIC) throw IOException("not a recording")
         val version = d.readInt()
-        if (version != VERSION) throw IOException("recording format $version, this plugin reads $VERSION")
+        if (version !in 1..VERSION) throw IOException("recording format $version, this plugin reads 1 to $VERSION")
         val strings = List(d.readInt()) { d.readUTF() }
         val sites = List(d.readInt()) {
             val c = strings[d.readInt()]
@@ -83,6 +88,10 @@ object RecordingFile {
         }
         val exhausted = LinkedHashSet<Site>()
         repeat(d.readInt()) { exhausted += sites[d.readInt()] }
-        return Recording(threads, hits, exhausted, d.readBoolean())
+        val truncated = d.readBoolean()
+        if (version < 2) return Recording(threads, hits, exhausted, truncated)
+        val anchor = d.readInt().let { if (it < 0) null else sites[it] }
+        val change = if (d.readBoolean()) Change(strings[d.readInt()], strings[d.readInt()], strings[d.readInt()]) else null
+        return Recording(threads, hits, exhausted, truncated, anchor, change)
     }
 }

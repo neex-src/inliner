@@ -158,3 +158,23 @@ internal fun variableAtCaret(editor: Editor): String? {
         }
     }
 }
+
+/** A what-if being replayed: show the original run instead, and back. */
+class ReplayCompareToggleAction : ReplayAction() {
+    override fun update(e: AnActionEvent) {
+        super.update(e)
+        e.presentation.isEnabled = e.presentation.isEnabled && e.project?.let(ReplayService::of)?.comparison != null
+    }
+
+    override fun perform(service: ReplayService, editor: Editor) = service.toggleCompared()
+}
+
+/** A what-if being replayed: to where it and the original part. */
+class ReplayDivergenceAction : ReplayAction() {
+    override fun update(e: AnActionEvent) {
+        super.update(e)
+        e.presentation.isEnabled = e.presentation.isEnabled && e.project?.let(ReplayService::of)?.comparison != null
+    }
+
+    override fun perform(service: ReplayService, editor: Editor) = service.toDivergence(editor)
+}

@@ -6,6 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import recfix.Calls
+import recfix.Flags
 import recfix.Hot
 import recfix.Quotes
 import recfix.Values
@@ -165,5 +166,45 @@ class RecorderTest {
         assertTrue(scope.covers("com.example.shop.Cart\$Line"))
         assertFalse(scope.covers("com.examples.Cart"))
         assertFalse(scope.covers("com.example.gen.Dto"))
+    }
+
+    @Test
+    fun whatIfTakesTheOtherBranch() {
+        val asIs = JdiRun.record(Flags::class.java)
+        assertEquals("5\n", asIs.output)
+        val run = JdiRun.record(Flags::class.java, whatIf = JdiRun.WhatIfAt("percent", lineOf("Flags.java", "int percent = 0"), "bulk", "false"))
+        assertEquals("the program itself went the other way", "0\n", run.output)
+        assertEquals(Change("bulk", "true", "false"), run.change)
+        val branch = lineOf("Flags.java", "percent = 5;")
+        assertTrue(asIs.recording.hits.any { it.site.line == branch })
+        assertFalse(run.recording.hits.any { it.site.line == branch })
+        assertEquals(Change("bulk", "true", "false"), run.recording.change)
+    }
+
+    @Test
+    fun whatIfRefusesWhatItCannotMake() {
+        val line = lineOf("Flags.java", "int percent = 0")
+        assertEquals("'maybe' is not a boolean", JdiRun.record(Flags::class.java, whatIf = JdiRun.WhatIfAt("percent", line, "bulk", "maybe")).whatIfError)
+        assertEquals("No variable 'nope' at this line", JdiRun.record(Flags::class.java, whatIf = JdiRun.WhatIfAt("percent", line, "nope", "1")).whatIfError)
+        assertEquals("the run goes on untouched", "5\n", JdiRun.record(Flags::class.java, whatIf = JdiRun.WhatIfAt("percent", line, "bulk", "maybe")).output)
+    }
+
+    @Test
+    fun fileKeepsAnchorAndChangeAndReadsVersionOne() {
+        val site = Site("p.A", "f", "()V", 3, null)
+        val recording = Recording(mapOf(1L to "main"), emptyList(), emptySet(), false, site, Change("x", "1", "2"))
+        val back = RecordingFile.read(ByteArrayInputStream(ByteArrayOutputStream().also { RecordingFile.write(recording, it) }.toByteArray()))
+        assertEquals(site, back.anchor)
+        assertEquals(Change("x", "1", "2"), back.change)
+        val v1 = ByteArrayOutputStream().also { out ->
+            java.io.DataOutputStream(out).apply {
+                writeInt(0x494e4c52); writeInt(1)
+                repeat(5) { writeInt(0) }  // strings, sites, threads, hits, exhausted
+                writeBoolean(false)
+            }.flush()
+        }.toByteArray()
+        val old = RecordingFile.read(ByteArrayInputStream(v1))
+        assertEquals(null, old.anchor)
+        assertEquals(null, old.change)
     }
 }
