@@ -12,7 +12,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.wm.WindowManager
+import com.neex.inliner.InlinerStatusWidget
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.neex.inliner.recorder.CallTree
 import com.neex.inliner.recorder.Invocation
@@ -102,8 +102,13 @@ class RecorderService(private val project: Project) : Disposable {
 
     private fun count(call: Invocation): Int = 1 + call.children.sumOf(::count)
 
+    /** What [InlinerStatusWidget] shows for this service; empty: nothing. */
+    var statusText = ""
+        private set
+
     private fun status(text: String) {
-        WindowManager.getInstance().getStatusBar(project)?.info = text
+        statusText = text
+        InlinerStatusWidget.update(project)
     }
 
     private fun notify(text: String, type: NotificationType) {

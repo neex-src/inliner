@@ -9,6 +9,7 @@ import com.intellij.debugger.requests.ClassPrepareRequestor
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.EmptyRunnable
 import com.neex.inliner.recorder.Hit
 import com.neex.inliner.recorder.MethodKey
 import com.neex.inliner.recorder.Recorder
@@ -131,6 +132,9 @@ class LiveRecording(
         requests.clear()
         onEnd(recorder.recording(), reason)
         Disposer.dispose(this)
+        // The manager thread holds on to the last command it ran until it runs another: if that is
+        // ours, it keeps this plugin's classes alive after an unload. Leave it a command of its own.
+        process.managerThread.schedule(PrioritizedTask.Priority.LOW, EmptyRunnable.getInstance())
     }
 
     private fun onManagerThread(work: () -> Unit) {
