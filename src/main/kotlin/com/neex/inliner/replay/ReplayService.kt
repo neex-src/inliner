@@ -25,6 +25,7 @@ import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.ClassUtil
 import com.intellij.psi.util.PsiTreeUtil
+import com.neex.inliner.FrameListener
 import com.neex.inliner.InlinerLifetime
 import com.neex.inliner.recorder.ide.RecordingStore
 import com.neex.inliner.recorder.ValueRenderer
@@ -49,6 +50,14 @@ class ReplayService(private val project: Project) : Disposable {
     internal val currentView: ReplayView? get() = view
 
     val isOpen: Boolean get() = replay != null
+
+    init {
+        // Frames expanded or collapsed under the painted editor show (or drop) their calls.
+        project.messageBus.connect(this).subscribe(FrameListener.TOPIC, FrameListener { host ->
+            val replay = replay ?: return@FrameListener
+            view?.takeIf { it.editor === host && !host.isDisposed }?.render(replay)
+        })
+    }
 
     /** No replay keys while a debugger is paused: F8 & co. belong to it then. */
     fun debuggerPaused(): Boolean = DebuggerManagerEx.getInstanceEx(project).context.suspendContext != null

@@ -219,6 +219,7 @@ object InlineExpansionService {
 
         // Focus integration: propagate tracked arguments into the new frame and paint it.
         state.hostEditor.getUserData(FocusKeys.FOCUS_SET)?.let { FocusService.refreshAll(it) }
+        project.messageBus.syncPublisher(FrameListener.TOPIC).framesChanged(state.hostEditor)
     }
 
     fun collapse(node: ExpansionNode) {
@@ -226,7 +227,9 @@ object InlineExpansionService {
         val parentEditor = node.parentEditor
         val parent = node.parent
         val caretOffset = if (node.callRange.isValid) node.callRange.startOffset else null
+        val host = node.hostState.hostEditor
         Disposer.dispose(node)
+        host.project?.takeUnless { it.isDisposed }?.messageBus?.syncPublisher(FrameListener.TOPIC)?.framesChanged(host)
         if (!parentEditor.isDisposed) {
             if (caretOffset != null) parentEditor.caretModel.moveToOffset(caretOffset)
             IdeFocusManager.getGlobalInstance().requestFocus(parentEditor.contentComponent, true)

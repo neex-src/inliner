@@ -88,20 +88,27 @@ class Replay(val recording: Recording) {
      * What each line of the current call has done so far, by line: the values its last run (up to
      * the cursor) changed. The cursor's own line hasn't run yet: it is not in here.
      */
-    fun changesSoFar(): Map<Int, List<VarValue>> {
-        val here = current
-        val hits = callOf(here).hits
+    fun changesSoFar(): Map<Int, List<VarValue>> = changes(callOf(current), current.seq)
+
+    /** The lines the current call ran, start to end — not only up to the cursor: its path. */
+    fun linesOfCall(): Set<Int> = linesOf(callOf(current))
+
+    /**
+     * What each line of [call] changed in its last run before [upTo] (a hit's seq; null: the whole
+     * call), by line — told by the next hit of the call, which may be its return.
+     */
+    fun changes(call: Invocation, upTo: Int?): Map<Int, List<VarValue>> {
+        val hits = call.hits
         val out = HashMap<Int, List<VarValue>>()
         for ((i, hit) in hits.withIndex()) {
-            if (hit.seq >= here.seq) break
+            if (upTo != null && hit.seq >= upTo) break
             if (!hit.startsLine) continue
-            val after = hits.getOrNull(i + 1)?.takeIf { it.seq <= here.seq } ?: continue
+            val after = hits.getOrNull(i + 1)?.takeIf { upTo == null || it.seq <= upTo } ?: continue
             val before = hit.values.associate { it.name to it.text }
             out[hit.site.line] = after.values.filter { it.name != "this" && before[it.name] != it.text }
         }
         return out
     }
 
-    /** The lines the current call ran, start to end — not only up to the cursor: its path. */
-    fun linesOfCall(): Set<Int> = callOf(current).hits.filter { it.startsLine }.mapTo(HashSet()) { it.site.line }
+    fun linesOf(call: Invocation): Set<Int> = call.hits.filter { it.startsLine }.mapTo(HashSet()) { it.site.line }
 }
