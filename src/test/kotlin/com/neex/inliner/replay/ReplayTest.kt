@@ -115,4 +115,34 @@ class ReplayTest {
         assertEquals(1, r.stopCount)
         assertEquals("work", r.current.site.methodName)
     }
+
+    @Test
+    fun whereAValueCameFrom() {
+        val r = replay()
+        r.goTo(5)
+        assertEquals("line 10 set x", 0, r.lastChange("x")!!.seq)
+        assertEquals("line 11 brought y in", 1, r.lastChange("y")!!.seq)
+        r.goTo(3)
+        assertEquals("a parameter: the call never changed it", null, r.lastChange("a"))
+        r.goTo(6)
+        assertEquals(7, r.nextChange("s")!!.seq)
+        r.goTo(10)
+        assertEquals(null, r.nextChange("s"))
+    }
+
+    @Test
+    fun historyOfAVariableInACall() {
+        val r = replay()
+        r.goTo(10)
+        val main = r.callOf(r.current)
+        assertEquals(listOf("0", "5", "10") to 2, r.history(main, "s", 10))
+        assertEquals(listOf("0", "1", "2") to 1, r.history(main, "i", 8))
+        assertEquals("whole call, no cursor", listOf("0", "1", "2") to null, r.history(main, "i", null))
+    }
+
+    @Test
+    fun callListInOrderWithDepth() {
+        val r = replay()
+        assertEquals(listOf("main" to 0, "f" to 1), r.callList().map { (call, level) -> call.method.methodName to level })
+    }
 }

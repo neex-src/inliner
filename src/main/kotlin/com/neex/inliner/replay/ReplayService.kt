@@ -27,6 +27,7 @@ import com.intellij.psi.util.ClassUtil
 import com.intellij.psi.util.PsiTreeUtil
 import com.neex.inliner.FrameListener
 import com.neex.inliner.InlinerLifetime
+import com.neex.inliner.focus.FocusListener
 import com.neex.inliner.recorder.ide.RecordingStore
 import com.neex.inliner.recorder.ValueRenderer
 import java.nio.file.Path
@@ -51,12 +52,45 @@ class ReplayService(private val project: Project) : Disposable {
 
     val isOpen: Boolean get() = replay != null
 
+    /** Fold what the cursor's call didn't run (Alt+Shift+F), kept while moving. */
+    var foldNotRun = false
+        private set
+
     init {
-        // Frames expanded or collapsed under the painted editor show (or drop) their calls.
-        project.messageBus.connect(this).subscribe(FrameListener.TOPIC, FrameListener { host ->
-            val replay = replay ?: return@FrameListener
-            view?.takeIf { it.editor === host && !host.isDisposed }?.render(replay)
-        })
+        // Frames expanded or collapsed under the painted editor show (or drop) their calls;
+        // variables tracked or untracked there get (or lose) their history.
+        val bus = project.messageBus.connect(this)
+        bus.subscribe(FrameListener.TOPIC, FrameListener(::repaint))
+        bus.subscribe(FocusListener.TOPIC, FocusListener(::repaint))
+    }
+
+    private fun repaint(host: Editor) {
+        val replay = replay ?: return
+        view?.takeIf { it.editor === host && !host.isDisposed }?.render(replay, foldNotRun)
+    }
+
+    fun toggleFold() {
+        foldNotRun = !foldNotRun
+        view?.let { repaint(it.editor) }
+    }
+
+    /** Back to the line that gave [name] its value (the call site when the call never changed it), or on to the next change. */
+    fun toChange(name: String, forward: Boolean, editor: Editor) {
+        val replay = replay ?: return
+        val target = if (forward) replay.nextChange(name) else replay.lastChange(name) ?: replay.callOf(replay.current).callSite
+        if (target != null && replay.moveTo(target)) show()
+        else hint(editor, if (forward) "$name doesn't change again in this call" else "$name has this value from before the recording")
+    }
+
+    fun selectThread(id: Long) {
+        val replay = replay ?: return
+        replay.selectThread(id)
+        if (!replay.isEmpty) show()
+    }
+
+    fun moveTo(hit: com.neex.inliner.recorder.Hit) {
+        val replay = replay ?: return
+        if (replay.moveTo(hit)) show()
     }
 
     /** No replay keys while a debugger is paused: F8 & co. belong to it then. */
@@ -120,7 +154,7 @@ class ReplayService(private val project: Project) : Disposable {
                 view = it
             }
         }
-        view.render(replay)
+        view.render(replay, foldNotRun)
         val call = replay.callOf(hit)
         val from = call.parent?.let { " ← " + ValueRenderer.simple(it.method.className) + "." + it.method.methodName } ?: ""
         val thread = replay.recording.threads[hit.thread] ?: "?"

@@ -167,6 +167,36 @@
                 use-shortcut-of="ForceRunToCursor"
                 text="Replay: Previous Run of This Line"
                 description="Replay: back to the previous time the caret's line ran"/>
+        <action id="com.neex.inliner.ReplayLastChange"
+                class="com.neex.inliner.replay.ReplayLastChangeAction"
+                text="Replay: Where This Value Came From"
+                description="Replay: back to the line that last changed the variable at the caret, or the call that passed it in">
+            <keyboard-shortcut keymap="$default" first-keystroke="shift alt W"/>
+        </action>
+        <action id="com.neex.inliner.ReplayNextChange"
+                class="com.neex.inliner.replay.ReplayNextChangeAction"
+                text="Replay: Next Change of This Variable"
+                description="Replay: on to the next line that changes the variable at the caret">
+            <keyboard-shortcut keymap="$default" first-keystroke="shift alt N"/>
+        </action>
+        <action id="com.neex.inliner.ReplayFold"
+                class="com.neex.inliner.replay.ReplayFoldAction"
+                text="Replay: Fold What Didn't Run"
+                description="Replay: fold away the statements the current call never reached; again to unfold">
+            <keyboard-shortcut keymap="$default" first-keystroke="shift alt F"/>
+        </action>
+        <action id="com.neex.inliner.ReplayThreads"
+                class="com.neex.inliner.replay.ReplayThreadsAction"
+                text="Replay: Threads…"
+                description="Replay: pick which of the recording's threads to replay">
+            <keyboard-shortcut keymap="$default" first-keystroke="shift alt T"/>
+        </action>
+        <action id="com.neex.inliner.ReplayCalls"
+                class="com.neex.inliner.replay.ReplayCallsAction"
+                text="Replay: Calls…"
+                description="Replay: the thread's calls as a tree; go to one">
+            <keyboard-shortcut keymap="$default" first-keystroke="shift alt L"/>
+        </action>
         <action id="com.neex.inliner.ReplayPick"
                 class="com.neex.inliner.replay.ReplayPickAction"
                 text="Replay a Recording…"

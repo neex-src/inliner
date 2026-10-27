@@ -111,4 +111,53 @@ class Replay(val recording: Recording) {
     }
 
     fun linesOf(call: Invocation): Set<Int> = call.hits.filter { it.startsLine }.mapTo(HashSet()) { it.site.line }
+
+    /**
+     * The line that gave [name] the value it has at the cursor: the last line of the current call
+     * that changed it — null when the call never did (it came in as an argument, or before the
+     * recording started).
+     */
+    fun lastChange(name: String): Hit? {
+        val hits = callOf(current).hits
+        val at = hits.indexOfFirst { it.seq == current.seq }
+        return (at - 1 downTo 0).map { hits[it] }.firstOrNull { changes(it, hits, name) }
+    }
+
+    /** The next line of the current call that changes [name], after the cursor's own. */
+    fun nextChange(name: String): Hit? {
+        val hits = callOf(current).hits
+        val at = hits.indexOfFirst { it.seq == current.seq }
+        return (at + 1 until hits.size).map { hits[it] }.firstOrNull { changes(it, hits, name) }
+    }
+
+    private fun changes(hit: Hit, hits: List<Hit>, name: String): Boolean {
+        if (!hit.startsLine) return false
+        val next = hits.getOrNull(hits.indexOf(hit) + 1) ?: return false
+        return valueOf(next, name) != valueOf(hit, name) && valueOf(next, name) != null
+    }
+
+    fun valueOf(hit: Hit, name: String): String? = hit.values.firstOrNull { it.name == name }?.text
+
+    /** The values [name] took in [call], each change once; with the index of the one current at [cursor] (a seq), if any. */
+    fun history(call: Invocation, name: String, cursor: Int?): Pair<List<String>, Int?> {
+        val values = ArrayList<String>()
+        var now: Int? = null
+        for (hit in call.hits) {
+            val value = valueOf(hit, name) ?: continue
+            if (values.lastOrNull() != value) values += value
+            if (cursor != null && hit.seq <= cursor) now = values.size - 1
+        }
+        return values to now
+    }
+
+    /** This thread's calls in the order they were made, each with its nesting depth. */
+    fun callList(): List<Pair<Invocation, Int>> {
+        val out = ArrayList<Pair<Invocation, Int>>()
+        fun walk(call: Invocation, level: Int) {
+            out += call to level
+            call.children.forEach { walk(it, level + 1) }
+        }
+        calls[thread].orEmpty().forEach { walk(it, 0) }
+        return out
+    }
 }

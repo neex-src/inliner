@@ -133,6 +133,7 @@ object FocusService {
             FocusHighlighter.apply(editor, picture)
             FocusFolder.refresh(editor, set, psiFile, picture)
         }
+        if (!set.project.isDisposed) set.project.messageBus.syncPublisher(FocusListener.TOPIC).focusChanged(host)
     }
 
     private fun collectFragments(nodes: List<ExpansionNode>, out: MutableList<Editor>) {
