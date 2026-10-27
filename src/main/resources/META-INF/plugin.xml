@@ -42,7 +42,9 @@
                                  id="com.neex.inliner.settings"
                                  displayName="Inline Reading Mode"/>
         <notificationGroup id="Inline Reading Mode" displayType="BALLOON"/>
+        <statusBarWidgetFactory id="com.neex.inliner.status" implementation="com.neex.inliner.InlinerStatusWidgetFactory" order="first"/>
         <actionPromoter implementation="com.neex.inliner.FrameEditPromoter"/>
+        <actionPromoter implementation="com.neex.inliner.replay.ReplayPromoter"/>
         <editorActionHandler action="EditorEscape"
                              implementationClass="com.neex.inliner.InlineEscapeHandler"
                              order="last"/>
@@ -129,6 +131,47 @@
                 text="Record Until Return"
                 description="Paused at a breakpoint: run on, recording, until this method returns">
             <keyboard-shortcut keymap="$default" first-keystroke="shift alt U"/>
+        </action>
+        <action id="com.neex.inliner.ReplayStepOver"
+                class="com.neex.inliner.replay.ReplayStepOverAction"
+                use-shortcut-of="StepOver"
+                text="Replay: Step Over"
+                description="Replay: the next line of this call (calls it makes run through)"/>
+        <action id="com.neex.inliner.ReplayStepInto"
+                class="com.neex.inliner.replay.ReplayStepIntoAction"
+                use-shortcut-of="StepInto"
+                text="Replay: Step Into"
+                description="Replay: the next recorded line, into calls"/>
+        <action id="com.neex.inliner.ReplayStepOut"
+                class="com.neex.inliner.replay.ReplayStepOutAction"
+                use-shortcut-of="StepOut"
+                text="Replay: Step Out"
+                description="Replay: the line after this call returns"/>
+        <action id="com.neex.inliner.ReplayBackOver"
+                class="com.neex.inliner.replay.ReplayBackOverAction"
+                use-shortcut-of="ForceStepOver"
+                text="Replay: Step Back Over"
+                description="Replay: the previous line of this call; from its first line, the line that made the call"/>
+        <action id="com.neex.inliner.ReplayBackInto"
+                class="com.neex.inliner.replay.ReplayBackIntoAction"
+                use-shortcut-of="ForceStepInto"
+                text="Replay: Step Back Into"
+                description="Replay: the previous recorded line, into calls"/>
+        <action id="com.neex.inliner.ReplayToLine"
+                class="com.neex.inliner.replay.ReplayToLineAction"
+                use-shortcut-of="RunToCursor"
+                text="Replay: Next Run of This Line"
+                description="Replay: forward to the next time the caret's line ran"/>
+        <action id="com.neex.inliner.ReplayBackToLine"
+                class="com.neex.inliner.replay.ReplayBackToLineAction"
+                use-shortcut-of="ForceRunToCursor"
+                text="Replay: Previous Run of This Line"
+                description="Replay: back to the previous time the caret's line ran"/>
+        <action id="com.neex.inliner.ReplayPick"
+                class="com.neex.inliner.replay.ReplayPickAction"
+                text="Replay a Recording…"
+                description="Pick a recording of this project to replay in the editor, or close the open replay">
+            <keyboard-shortcut keymap="$default" first-keystroke="shift alt P"/>
         </action>
     </actions>
 </idea-plugin>

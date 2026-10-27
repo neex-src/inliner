@@ -44,6 +44,14 @@ intellijPlatform {
     }
 }
 
+kotlin {
+    compilerOptions {
+        // Implement the platform's Kotlin interfaces through their own default methods: no
+        // generated stubs that override (and so "use") their deprecated members.
+        jvmDefault.set(org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode.NO_COMPATIBILITY)
+    }
+}
+
 // jvmTarget intentionally not set: the IntelliJ Platform plugin pins it to the
 // platform's Java version (25 for 262), and Kotlin 2.3 can emit that.
 
