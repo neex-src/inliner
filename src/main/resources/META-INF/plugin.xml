@@ -197,6 +197,24 @@
                 description="Replay: the thread's calls as a tree; go to one">
             <keyboard-shortcut keymap="$default" first-keystroke="shift alt L"/>
         </action>
+        <action id="com.neex.inliner.WhatIf"
+                class="com.neex.inliner.recorder.ide.WhatIfAction"
+                text="What If…"
+                description="Paused at a breakpoint: set the variable at the caret to another value, record the rest of the method, and replay it beside the original from this line">
+            <keyboard-shortcut keymap="$default" first-keystroke="shift alt E"/>
+        </action>
+        <action id="com.neex.inliner.ReplayCompareToggle"
+                class="com.neex.inliner.replay.ReplayCompareToggleAction"
+                text="Replay: Original / What-If"
+                description="Replaying a what-if: show the original run instead, and back">
+            <keyboard-shortcut keymap="$default" first-keystroke="shift alt V"/>
+        </action>
+        <action id="com.neex.inliner.ReplayDivergence"
+                class="com.neex.inliner.replay.ReplayDivergenceAction"
+                text="Replay: Where the Runs Part"
+                description="Replaying a what-if: to the first line where it and the original went different ways">
+            <keyboard-shortcut keymap="$default" first-keystroke="shift alt X"/>
+        </action>
         <action id="com.neex.inliner.ReplayPick"
                 class="com.neex.inliner.replay.ReplayPickAction"
                 text="Replay a Recording…"

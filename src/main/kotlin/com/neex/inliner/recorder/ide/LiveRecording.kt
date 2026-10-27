@@ -10,11 +10,15 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.EmptyRunnable
+import com.neex.inliner.recorder.Change
 import com.neex.inliner.recorder.Hit
 import com.neex.inliner.recorder.MethodKey
 import com.neex.inliner.recorder.Recorder
 import com.neex.inliner.recorder.Recording
+import com.neex.inliner.recorder.Site
 import com.neex.inliner.recorder.Verdict
+import com.neex.inliner.recorder.WhatIf
+import com.neex.inliner.recorder.WhatIfException
 import com.sun.jdi.ReferenceType
 import com.sun.jdi.ThreadReference
 import com.sun.jdi.VMDisconnectedException
@@ -49,6 +53,8 @@ class LiveRecording(
     private val requests = ArrayList<BreakpointRequest>()
     private val armed = HashSet<ReferenceType>()
     private var until: Until? = null
+    private var anchor: Site? = null
+    private var change: Change? = null
 
     @Volatile
     var ended = false
@@ -76,12 +82,32 @@ class LiveRecording(
         hit.thread == until.thread &&
             (hit.depth < until.depth || hit.depth == until.depth && hit.returns && hit.site.method == until.method)
 
+    /** A value to set in the paused frame before recording on: a what-if. */
+    class WhatIfRequest(val name: String, val text: String)
+
     /**
      * Arms what is loaded now and what loads later, then calls [armed] (on the manager thread).
-     * [untilReturn]: the user is paused; end when that frame returns.
+     * [untilReturn]: the user is paused; end when that frame returns, the paused line being the
+     * recording's anchor. [whatIf]: first set that value in the paused frame; if it can't be
+     * done, nothing is recorded and [refused] says why.
      */
-    fun start(untilReturn: Boolean, armed: () -> Unit) = onManagerThread {
-        if (untilReturn) until = pausedFrame()
+    fun start(untilReturn: Boolean, whatIf: WhatIfRequest? = null, refused: (String) -> Unit = {}, armed: () -> Unit) = onManagerThread {
+        if (whatIf != null) {
+            val frame = process.suspendManager.pausedContext?.frameProxy
+            try {
+                if (frame == null) throw WhatIfException("Not paused in a frame")
+                change = WhatIf.apply(frame.stackFrame, whatIf.name, whatIf.text)
+            } catch (e: WhatIfException) {
+                ended = true
+                refused(e.message ?: "Can't set ${whatIf.name}")
+                Disposer.dispose(this)
+                return@onManagerThread
+            }
+        }
+        if (untilReturn) {
+            until = pausedFrame()
+            anchor = process.suspendManager.pausedContext?.frameProxy?.location()?.let(recorder::siteAt)
+        }
         process.addDebugProcessListener(object : DebugProcessListener {
             override fun processDetached(process: DebugProcess, closedByUser: Boolean) = end(EndReason.DETACHED)
         }, this)
@@ -130,7 +156,7 @@ class LiveRecording(
             // the debuggee is gone, and its requests with it
         }
         requests.clear()
-        onEnd(recorder.recording(), reason)
+        onEnd(recorder.recording(anchor, change), reason)
         Disposer.dispose(this)
         // The manager thread holds on to the last command it ran until it runs another: if that is
         // ours, it keeps this plugin's classes alive after an unload. Leave it a command of its own.

@@ -44,6 +44,9 @@ class Replay(val recording: Recording) {
 
     val current: Hit get() = stops[position]
 
+    /** This thread's stops, in order. */
+    fun stops(): List<Hit> = stops
+
     fun callOf(hit: Hit): Invocation = callOf.getValue(hit.seq)
 
     private fun stopsOf(thread: Long) = recording.hits.filter { it.thread == thread && it.startsLine }

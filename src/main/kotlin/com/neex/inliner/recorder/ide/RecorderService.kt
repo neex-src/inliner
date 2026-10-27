@@ -18,6 +18,7 @@ import com.neex.inliner.recorder.CallTree
 import com.neex.inliner.recorder.Invocation
 import com.neex.inliner.recorder.Recorder
 import com.neex.inliner.recorder.Recording
+import com.neex.inliner.replay.ReplayService
 import javax.swing.Timer
 
 /**
@@ -40,17 +41,26 @@ class RecorderService(private val project: Project) : Disposable {
     fun isPaused(): Boolean = DebuggerManagerEx.getInstanceEx(project).context.suspendContext != null
 
     /** Starts recording the current debug session; [untilReturn]: from the paused frame until it returns. */
-    fun start(untilReturn: Boolean) {
+    fun start(untilReturn: Boolean) = start(untilReturn, null)
+
+    /**
+     * Paused at a breakpoint: set [name] to the value written as [text] and record the rest of
+     * this method — a what-if. When it ends it is compared with the original recorded from the
+     * same line (Alt+Shift+U there).
+     */
+    fun whatIf(name: String, text: String) = start(true, LiveRecording.WhatIfRequest(name, text))
+
+    private fun start(untilReturn: Boolean, whatIf: LiveRecording.WhatIfRequest?) {
         val process = currentProcess() ?: return notify("No Java debug session to record.", NotificationType.WARNING)
         if (isRecording) return
         ReadAction.nonBlocking<List<String>> { ProjectPackages.of(project) }
             .inSmartMode(project)
             .expireWith(this)
-            .finishOnUiThread(ModalityState.nonModal()) { begin(process, it, untilReturn) }
+            .finishOnUiThread(ModalityState.nonModal()) { begin(process, it, untilReturn, whatIf) }
             .submit(AppExecutorUtil.getAppExecutorService())
     }
 
-    private fun begin(process: DebugProcessImpl, packages: List<String>, untilReturn: Boolean) {
+    private fun begin(process: DebugProcessImpl, packages: List<String>, untilReturn: Boolean, whatIf: LiveRecording.WhatIfRequest?) {
         if (isRecording || !process.isAttached) return
         val settings = RecorderSettings.getInstance()
         val scope = settings.scope(packages)
@@ -65,7 +75,16 @@ class RecorderService(private val project: Project) : Disposable {
         )
         Disposer.register(this, recording)
         live = recording
-        recording.start(untilReturn) {
+        val refused = { why: String ->
+            ApplicationManager.getApplication().invokeLater({
+                live = null
+                ticker?.stop()
+                ticker = null
+                status("")
+                notify("What if: $why", NotificationType.WARNING)
+            }, ModalityState.nonModal())
+        }
+        recording.start(untilReturn, whatIf, refused) {
             if (untilReturn) ApplicationManager.getApplication().invokeLater { process.xdebugProcess?.session?.resume() }
         }
         ticker = Timer(500) { status("Recording — ${"%,d".format(recording.hits)} lines") }.apply { start() }
@@ -82,8 +101,24 @@ class RecorderService(private val project: Project) : Disposable {
         status("")
         if (project.isDisposed) return
         ApplicationManager.getApplication().executeOnPooledThread {
-            val file = RecordingStore.of(project).save(recording)
-            notify(summary(recording, reason) + "\nSaved: ${file.fileName}", NotificationType.INFORMATION)
+            val store = RecordingStore.of(project)
+            val file = store.save(recording)
+            val change = recording.change
+            if (change == null) {
+                notify(summary(recording, reason) + "\nSaved: ${file.fileName}", NotificationType.INFORMATION)
+                return@executeOnPooledThread
+            }
+            // A what-if: replay it against the original from the same line, if there is one.
+            val original = store.list().asSequence().filter { it != file }.take(ORIGINALS_LOOKED_AT)
+                .mapNotNull { runCatching { store.load(it) }.getOrNull() }
+                .firstOrNull { it.change == null && it.anchor != null && it.anchor == recording.anchor }
+            val what = "What if ${change.name} = ${change.after} (was ${change.before})"
+            if (original == null) {
+                notify("$what: ${summary(recording, reason)}\nNo original from this line to compare with: Alt+Shift+U at this breakpoint records one.", NotificationType.INFORMATION)
+            } else {
+                notify("$what: replayed beside the original from this line. Alt+Shift+X: where they part, Alt+Shift+V: the original.", NotificationType.INFORMATION)
+            }
+            ReplayService.of(project).openCompared(recording, original, file.fileName.toString())
         }
     }
 
@@ -122,6 +157,9 @@ class RecorderService(private val project: Project) : Disposable {
     }
 
     companion object {
+        /** How far back the store is searched for a what-if's original. */
+        private const val ORIGINALS_LOOKED_AT = 30
+
         fun of(project: Project): RecorderService = project.service()
     }
 }

@@ -29,6 +29,7 @@ import com.neex.inliner.FrameListener
 import com.neex.inliner.InlinerLifetime
 import com.neex.inliner.focus.FocusListener
 import com.neex.inliner.recorder.ide.RecordingStore
+import com.neex.inliner.recorder.Recording
 import com.neex.inliner.recorder.ValueRenderer
 import java.nio.file.Path
 
@@ -66,7 +67,60 @@ class ReplayService(private val project: Project) : Disposable {
 
     private fun repaint(host: Editor) {
         val replay = replay ?: return
-        view?.takeIf { it.editor === host && !host.isDisposed }?.render(replay, foldNotRun)
+        view?.takeIf { it.editor === host && !host.isDisposed }?.render(replay, foldNotRun, overlay())
+    }
+
+    /** A what-if run beside its original: [replay] is one of the two. */
+    var comparison: Comparison? = null
+        private set
+
+    private fun overlay(): ReplayView.Overlay? {
+        val comparison = comparison ?: return null
+        val replay = replay ?: return null
+        return ReplayView.Overlay(comparison, replay)
+    }
+
+    /** Opens a what-if run ([variant]), compared with its [original] when there is one. Any thread. */
+    fun openCompared(variant: Recording, original: Recording?, name: String) {
+        ReadAction.nonBlocking<Triple<Replay, Replay?, Map<String, VirtualFile>>> {
+            val v = Replay(variant)
+            val o = original?.let(::Replay)
+            Triple(v, o, sourcesOf(project, v) + (o?.let { sourcesOf(project, it) } ?: emptyMap()))
+        }
+            .inSmartMode(project)
+            .expireWith(this)
+            .finishOnUiThread(ModalityState.nonModal()) { (v, o, sources) -> startCompared(v, o, name, sources) }
+            .submit(AppExecutorUtil.getAppExecutorService())
+    }
+
+    fun startCompared(variant: Replay, original: Replay?, name: String, sources: Map<String, VirtualFile>) {
+        start(variant, name, sources)
+        if (original != null && replay === variant) {
+            comparison = Comparison(original, variant)
+            show()
+        }
+    }
+
+    /** Shows the other run of the comparison on the same line if it ran it (the run of it nearest in step), else at the same step. */
+    fun toggleCompared() {
+        val comparison = comparison ?: return
+        val now = replay ?: return
+        val other = comparison.other(now)
+        val here = now.current.site
+        val stops = other.stops()
+        val step = stops.indices.filter { stops[it].site == here }.minByOrNull { kotlin.math.abs(it - now.position) }
+            ?: now.position.coerceAtMost(stops.size - 1)
+        replay = other
+        other.moveTo(stops[step])
+        show()
+    }
+
+    /** To where this run and the other part. */
+    fun toDivergence(editor: Editor) {
+        val comparison = comparison ?: return
+        val replay = replay ?: return
+        val hit = comparison.divergence(replay) ?: return hint(editor, "Both runs take the same path")
+        if (replay.moveTo(hit)) show()
     }
 
     fun toggleFold() {
@@ -117,6 +171,7 @@ class ReplayService(private val project: Project) : Disposable {
     }
 
     fun close() {
+        comparison = null
         view?.let(Disposer::dispose)
         view = null
         replay = null
@@ -154,11 +209,14 @@ class ReplayService(private val project: Project) : Disposable {
                 view = it
             }
         }
-        view.render(replay, foldNotRun)
+        view.render(replay, foldNotRun, overlay())
         val call = replay.callOf(hit)
         val from = call.parent?.let { " ← " + ValueRenderer.simple(it.method.className) + "." + it.method.methodName } ?: ""
         val thread = replay.recording.threads[hit.thread] ?: "?"
-        status("Replay · ${ValueRenderer.simple(hit.site.className)}.${hit.site.methodName}$from · ${replay.position + 1}/${replay.stopCount} · $thread · $name")
+        val run = comparison?.variant?.recording?.change?.let { c ->
+            if (replay === comparison?.variant) " · what if ${c.name} = ${c.after}" else " · original (${c.name} = ${c.before})"
+        } ?: replay.recording.change?.let { " · what if ${it.name} = ${it.after}" } ?: ""
+        status("Replay$run · ${ValueRenderer.simple(hit.site.className)}.${hit.site.methodName}$from · ${replay.position + 1}/${replay.stopCount} · $thread · $name")
     }
 
 
