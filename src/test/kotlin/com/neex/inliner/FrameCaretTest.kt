@@ -1,5 +1,7 @@
 package com.neex.inliner
 
+import com.intellij.codeInsight.lookup.LookupManager
+import com.intellij.codeInsight.lookup.impl.LookupImpl
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataKey
 import com.intellij.openapi.actionSystem.DataMap
@@ -123,6 +125,45 @@ class FrameCaretTest : LightJavaCodeInsightFixtureTestCase() {
         }
         assertEquals(rows + "host:4", down)
         assertEquals(down.reversed().drop(1) + "host:3", press(IdeActions.ACTION_EDITOR_MOVE_CARET_UP, 9))
+    }
+
+    fun testOpenLookupKeepsTheVerticalKeys() {
+        myFixture.configureByText(
+            "A.java",
+            """
+            class A {
+                void caller() {
+                    callee(1);
+                    hel<caret>
+                }
+                void callee(int p) {
+                    int x = p;
+                }
+                void helperOne() {}
+                void helperTwo() {}
+            }
+            """.trimIndent(),
+        )
+        val typed = host.caretModel.offset
+        expandAt(host, "callee(1)")
+        host.caretModel.moveToOffset(typed)
+        current = host
+        val items = myFixture.completeBasic()
+        assertEquals("two candidates keep the popup open", 2, items?.size)
+        val lookup = LookupManager.getActiveLookup(host) as LookupImpl
+        val before = lookup.currentItem
+        val line = host.caretModel.logicalPosition.line
+
+        EditorTestUtil.executeAction(host, IdeActions.ACTION_EDITOR_MOVE_CARET_DOWN)
+
+        assertSame(lookup, LookupManager.getActiveLookup(host))
+        assertNotSame("Down selects the next item", before, lookup.currentItem)
+        assertEquals("the caret stays", line, host.caretModel.logicalPosition.line)
+        assertEquals(typed, host.caretModel.offset)
+
+        lookup.hideLookup(true)
+        EditorTestUtil.executeAction(host, IdeActions.ACTION_EDITOR_MOVE_CARET_UP)
+        assertTrue("without a popup Up is ours again: into the frame above", FrameRows.frameOf(current) != null)
     }
 
     fun testRightAtLineEndEntersFrameAndLeftComesBack() {
