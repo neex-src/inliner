@@ -8,7 +8,6 @@
   beside the IDE's: `start` and `restart` bring it up first, `stop` takes it down after the IDE."
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
-            [clojure.edn :as edn]
             [clojure.string :as str]))
 
 (def display ":77")
@@ -18,9 +17,14 @@
 
 (defn- root [] (str (fs/parent (System/getProperty "babashka.config"))))
 
-(defn- ijdev-bin []
-  (let [plugin (:ijdev-plugin (edn/read-string (slurp (str (fs/path (root) ".ijdev.edn")))))]
-    (str (fs/path (fs/parent plugin) "bin/ijdev"))))
+(defn- ijdev-bin
+  "The launcher: $IJDEV_HOME/bin/ijdev, else ~/projects/repls/ijdev/bin/ijdev (the repls checkout)."
+  []
+  (let [home (or (System/getenv "IJDEV_HOME")
+                 (str (fs/path (System/getProperty "user.home") "projects/repls/ijdev")))
+        bin (fs/path home "bin/ijdev")]
+    (when-not (fs/exists? bin) (die "no launcher at" (str bin) "(set IJDEV_HOME to the repls ijdev directory)"))
+    (str bin)))
 
 (defn- socket [] (str "/tmp/.X11-unix/X" (subs display 1)))
 
