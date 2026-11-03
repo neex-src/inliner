@@ -32,7 +32,7 @@ class RecordingsTest : LightJavaCodeInsightFixtureTestCase() {
         emptySet(), false, anchor, change,
     )
 
-    private fun store() = RecordingStore(FileUtil.createTempDirectory("recordings", null).toPath())
+    private fun store(keep: Int = 50) = RecordingStore(FileUtil.createTempDirectory("recordings", null).toPath(), keep)
 
     private class Counting(input: InputStream) : FilterInputStream(input) {
         var read = 0L
@@ -76,9 +76,41 @@ class RecordingsTest : LightJavaCodeInsightFixtureTestCase() {
         val before = RecordingStore.bytesRead.get()
         val choices = ReplayPickAction().choices(project, store)
         val read = RecordingStore.bytesRead.get() - before
-        assertEquals(30, choices.size)
+        assertEquals("thirty recordings and the Delete entry", 31, choices.size)
         assertTrue(choices.first().label, choices.first().label.contains("Line.amount") && choices.first().label.contains("lines"))
         println("listing 30 recordings: read $read bytes of $onDisk on disk (before: all of it, ${onDisk}), ${read * 100.0 / onDisk}%")
         assertTrue("read $read of $onDisk", read <= 30 * 1024 && read * 100 < onDisk)
+    }
+
+    fun testThe51stRecordingRemovesTheOldestAndAFilesDeleteRemovesIt() {
+        val store = store()
+        val at = LocalDateTime.of(2026, 11, 1, 9, 0)
+        val saved = List(50) { store.save(recording(3), at.plusMinutes(it.toLong())) }
+        assertEquals(50, store.list().size)
+        val newest = store.save(recording(3), at.plusMinutes(50))
+        assertEquals("fifty are kept", 50, store.list().size)
+        assertFalse("the oldest went", Files.exists(saved.first()))
+        assertEquals(newest, store.list().first())
+        assertEquals(saved[1], store.list().last())
+
+        // the pick popup's Delete entry: one row per recording, choosing one deletes its file
+        val pick = ReplayPickAction()
+        val entry = pick.choices(project, store).last()
+        assertTrue(entry.label, entry.label.startsWith("Delete"))
+        val rows = pick.deleteChoices(store)
+        assertEquals(50, rows.size)
+        val victim = store.list()[3]
+        rows[3].run()
+        assertFalse(Files.exists(victim))
+        assertEquals(49, store.list().size)
+    }
+
+    fun testTheKeepCountIsASettingAndNeverBelowOne() {
+        assertEquals(50, RecorderSettings().state.keep)
+        val store = store(keep = 0)
+        val at = LocalDateTime.of(2026, 11, 1, 9, 0)
+        store.save(recording(1), at)
+        store.save(recording(1), at.plusMinutes(1))
+        assertEquals("the newest is never deleted by its own save", 1, store.list().size)
     }
 }

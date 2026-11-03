@@ -39,7 +39,21 @@ class ReplayPickAction : AnAction(), DumbAware {
         val out = ArrayList<Choice>()
         if (service.isOpen) out += Choice("Close the replay") { service.close() }
         store.list().take(MAX).forEach { file -> out += Choice(label(store, file)) { service.open(file) } }
+        if (store.list().isNotEmpty()) out += Choice("Delete a recording…") { ApplicationManager.getApplication().invokeLater { showDelete(project, store) } }
         return out
+    }
+
+    /** One row per recording (newest first): choosing it deletes its file. */
+    internal fun deleteChoices(store: RecordingStore): List<Choice> =
+        store.list().map { file -> Choice("Delete  " + label(store, file)) { store.delete(file) } }
+
+    private fun showDelete(project: Project, store: RecordingStore) {
+        JBPopupFactory.getInstance().createPopupChooserBuilder(deleteChoices(store))
+            .setTitle("Delete a Recording")
+            .setNamerForFiltering { it.label }
+            .setItemChosenCallback { it.run() }
+            .createPopup()
+            .showCenteredInCurrentWindow(project)
     }
 
     /** Newest first, each labelled from its header: a list of thirty reads thirty headers, not thirty runs. */
@@ -65,6 +79,7 @@ class ReplayPickAction : AnAction(), DumbAware {
     }
 
     private companion object {
+        /** Recordings a popup lists: the newest. */
         const val MAX = 30
         val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
         val SHOWN: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM HH:mm:ss")

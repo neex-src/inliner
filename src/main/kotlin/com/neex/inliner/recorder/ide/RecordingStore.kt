@@ -17,7 +17,10 @@ import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.outputStream
 
 /** Recordings on disk, per project, under the IDE's system directory: they outlive the debug session. */
-class RecordingStore(val dir: Path) {
+class RecordingStore(val dir: Path, keep: Int = DEFAULT_KEEP) {
+
+    /** How many recordings stay: the newest ones; at least the one just saved. */
+    private val keep = keep.coerceAtLeast(1)
 
     fun save(recording: Recording, at: LocalDateTime = LocalDateTime.now()): Path {
         Files.createDirectories(dir)
@@ -25,6 +28,7 @@ class RecordingStore(val dir: Path) {
         var n = 2
         while (Files.exists(file)) file = dir.resolve(at.format(NAME) + "-${n++}.$EXT")
         file.outputStream().use { RecordingFile.write(recording, it) }
+        prune()
         return file
     }
 
@@ -32,6 +36,13 @@ class RecordingStore(val dir: Path) {
     fun list(): List<Path> =
         if (!Files.isDirectory(dir)) emptyList()
         else dir.listDirectoryEntries().filter { it.isRegularFile() && it.extension == EXT }.sortedByDescending { it.fileName.toString() }
+
+    /** Removes all but the newest [keep]: a recording is up to hundreds of thousands of hits, they would pile up for ever. */
+    private fun prune() {
+        list().drop(keep).forEach { runCatching { Files.deleteIfExists(it) } }
+    }
+
+    fun delete(file: Path): Boolean = runCatching { Files.deleteIfExists(file) }.getOrDefault(false)
 
     fun load(file: Path): Recording = counted(file).use(RecordingFile::read)
 
@@ -51,6 +62,7 @@ class RecordingStore(val dir: Path) {
 
     companion object {
         const val EXT = "inlrec"
+        const val DEFAULT_KEEP = 50
 
         /** A header is read through a buffer this big: nearly all of what listing a recording costs. */
         private const val HEADER_BUFFER = 1024
@@ -60,6 +72,9 @@ class RecordingStore(val dir: Path) {
         private val NAME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
 
         fun of(project: Project) =
-            RecordingStore(PathManager.getSystemDir().resolve("inliner").resolve("recordings").resolve(project.getProjectCacheFileName()))
+            RecordingStore(
+                PathManager.getSystemDir().resolve("inliner").resolve("recordings").resolve(project.getProjectCacheFileName()),
+                RecorderSettings.getInstance().state.keep,
+            )
     }
 }
