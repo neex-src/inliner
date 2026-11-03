@@ -1,5 +1,6 @@
 package com.neex.inliner
 
+import com.intellij.codeInsight.lookup.LookupManager
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.Editor
@@ -37,6 +38,9 @@ object FrameCaret {
     /** Performs [move] if frames are involved; false = not ours, let the platform do it. */
     fun move(editor: Editor, move: Move): Boolean {
         if (editor.caretModel.caretCount != 1) return false
+        // Registered order="first", so we run before the completion popup's own Up/Down/Page handlers:
+        // while a lookup is open the keys are its (it moves the selection, not the caret).
+        if (LookupManager.getActiveLookup(editor) != null) return false
         if (FrameRows.frameOf(editor) == null && FrameRows.framesIn(editor).isEmpty()) return false
         val row = Row(editor, editor.caretModel.visualPosition.line)
         return when (move) {
