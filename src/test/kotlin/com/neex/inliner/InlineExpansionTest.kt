@@ -188,7 +188,7 @@ class InlineExpansionTest : LightJavaCodeInsightFixtureTestCase() {
         WriteCommandAction.runWriteCommandAction(project) {
             val doc = myFixture.editor.document
             val line = doc.getLineNumber(node.callRange.startOffset)
-            doc.deleteString(doc.getLineStartOffset(line), doc.getLineEndOffset(line))
+            doc.deleteString(doc.getLineStartOffset(line), doc.getLineEndOffset(line) + 1)
         }
         PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
 
