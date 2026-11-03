@@ -56,7 +56,9 @@ class RecorderService(private val project: Project) : Disposable {
         val selected = DebuggerManagerEx.getInstanceEx(project).context.frameProxy
         val process = currentProcess() ?: return notify("No Java debug session to record.", NotificationType.WARNING)
         if (isRecording) return
-        ReadAction.nonBlocking<List<String>> { ProjectPackages.of(project) }
+        // a test run records the tests' own code too
+        val testRun = process.xdebugProcess?.session?.runProfile is com.intellij.execution.JavaTestConfigurationBase
+        ReadAction.nonBlocking<List<String>> { ProjectPackages.of(project, includeTests = testRun) }
             .inSmartMode(project)
             .expireWith(this)
             .finishOnUiThread(ModalityState.nonModal()) { begin(process, it, selected, untilReturn, whatIf) }

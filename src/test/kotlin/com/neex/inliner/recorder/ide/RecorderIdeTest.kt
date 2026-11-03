@@ -54,4 +54,32 @@ class RecorderIdeTest : LightJavaCodeInsightFixtureTestCase() {
         assertEquals("40", back.hits.single().values.single().text)
         assertTrue(store.load(second).truncated)
     }
+
+    fun testPackagesComeFromTheDirectoriesWithoutReadingAnyFile() {
+        // the directory says com.odd.pkg, the file says something else: only a PSI read would tell
+        val file = myFixture.tempDirFixture.createFile("com/odd/pkg/Odd.java", "package declared.elsewhere;\npublic class Odd {}")
+        val cached = com.intellij.psi.impl.PsiManagerEx.getInstanceEx(project).fileManager
+        assertNull(cached.getCachedPsiFile(file))
+        val packages = ReadAction.compute<List<String>, Throwable> { ProjectPackages.of(project) }
+        assertEquals(listOf("com.odd.pkg"), packages)
+        assertNull("no PSI was made for the file", cached.getCachedPsiFile(file))
+    }
+
+    fun testTestPackagesAreIncludedForATestRun() {
+        val tests = myFixture.tempDirFixture.findOrCreateDir("tests")
+        val file = myFixture.tempDirFixture.createFile("tests/com/shop/CartTest.java", "package com.shop;\npublic class CartTest {}")
+        myFixture.addClass("package com.shop.main; public class Cart {}")
+        com.intellij.testFramework.PsiTestUtil.addSourceRoot(module, tests, true)
+        try {
+            assertEquals("production only", listOf("com.shop.main"), ReadAction.compute<List<String>, Throwable> { ProjectPackages.of(project) })
+            assertEquals(
+                "a test run records the tests' own code too",
+                listOf("com.shop"),
+                ReadAction.compute<List<String>, Throwable> { ProjectPackages.of(project, includeTests = true) },
+            )
+            assertNotNull(file)
+        } finally {
+            com.intellij.testFramework.PsiTestUtil.removeSourceRoot(module, tests)
+        }
+    }
 }

@@ -1,20 +1,42 @@
 package com.neex.inliner.recorder.ide
 
-import com.intellij.ide.highlighter.JavaFileType
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
-import com.intellij.psi.PsiJavaFile
-import com.intellij.psi.PsiManager
-import com.intellij.psi.search.FileTypeIndex
-import com.intellij.psi.search.GlobalSearchScopesCore
+import com.intellij.openapi.roots.ModuleRootManager
+import com.intellij.openapi.roots.ProjectFileIndex
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileVisitor
 
-/** What the project itself is made of: the packages of its production Java sources. */
+/** What the project itself is made of: the packages of its Java sources. */
 object ProjectPackages {
 
-    /** Needs a read action and smart mode. */
-    fun of(project: Project): List<String> {
-        val psi = PsiManager.getInstance(project)
-        val packages = FileTypeIndex.getFiles(JavaFileType.INSTANCE, GlobalSearchScopesCore.projectProductionScope(project))
-            .mapNotNull { (psi.findFile(it) as? PsiJavaFile)?.packageName }
+    /**
+     * Needs a read action. Walks the source roots' directories — one listing each — and takes a
+     * directory's package from the directory index when it holds a `.java` file: no file is opened,
+     * parsed or turned into PSI, so a project of ten thousand files costs as many directories as it has.
+     * [includeTests]: the test source roots too, for a debuggee that is a test run.
+     */
+    fun of(project: Project, includeTests: Boolean = false): List<String> {
+        val index = ProjectFileIndex.getInstance(project)
+        val roots = ModuleManager.getInstance(project).modules
+            .flatMap { ModuleRootManager.getInstance(it).getSourceRoots(includeTests).asList() }
+            .distinct()
+        val packages = HashSet<String>()
+        for (root in roots) {
+            com.intellij.openapi.vfs.VfsUtilCore.visitChildrenRecursively(
+                root,
+                object : VirtualFileVisitor<Unit>() {
+                    override fun visitFile(file: VirtualFile): Boolean {
+                        if (!file.isDirectory) return true
+                        if (index.isExcluded(file) || (!includeTests && index.isInTestSourceContent(file))) return false
+                        if (file.children.any { !it.isDirectory && it.extension == "java" }) {
+                            index.getPackageNameByDirectory(file)?.let(packages::add)
+                        }
+                        return true
+                    }
+                },
+            )
+        }
         return fold(packages)
     }
 
