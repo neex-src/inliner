@@ -76,7 +76,7 @@ class ReplayView(val editor: Editor) : Disposable {
         if (overlay != null) diff(editor, replay, call, otherCall, overlay)
         values(editor, line, hit.values.filter { it.name != "this" }, DebuggerColors.INLINED_VALUES_EXECUTION_LINE)
         if (!isLambda(call)) {
-            val notRun = greyNotRun(editor, line, replay.linesOf(call))
+            val notRun = greyNotRun(editor, line, replay.linesRanOrUnknown(call))
             if (foldNotRun) fold(notRun)
         }
         histories(editor, replay, call, hit.seq)
@@ -96,13 +96,15 @@ class ReplayView(val editor: Editor) : Disposable {
      * all inserted); at the stop where the runs part, where the other went instead.
      */
     private fun diff(target: Editor, replay: Replay, call: Invocation, other: Invocation?, overlay: Overlay) {
+        // a line whose budget ran out in either run is unknown there: not a difference
         val mine = replay.linesOf(call)
         val theirs = other?.let(replay::linesOf).orEmpty()
+        val unknown = replay.unknownLines(call) + (other?.let(overlay.other::unknownLines).orEmpty())
         val doc = target.document
-        for (line in mine - theirs) if (line - 1 in 0 until doc.lineCount) {
+        for (line in mine - theirs - unknown) if (line - 1 in 0 until doc.lineCount) {
             highlighters += target to target.markupModel.addLineHighlighter(DiffColors.DIFF_INSERTED, line - 1, DIFF_LAYER)
         }
-        for (line in theirs - mine) if (line - 1 in 0 until doc.lineCount) {
+        for (line in theirs - mine - unknown) if (line - 1 in 0 until doc.lineCount) {
             highlighters += target to target.markupModel.addLineHighlighter(DiffColors.DIFF_DELETED, line - 1, DIFF_LAYER)
         }
         val parting = overlay.comparison.divergence(overlay.shown) ?: return
@@ -177,7 +179,7 @@ class ReplayView(val editor: Editor) : Disposable {
                 val signature = frame.document.getLineNumber(node.methodRange.startOffset)
                 values(frame, signature, first.values.filter { it.name != "this" }, DebuggerColors.INLINED_VALUES)
             }
-            if (!isLambda(child)) greyNotRun(frame, first.site.line - 1, replay.linesOf(child))
+            if (!isLambda(child)) greyNotRun(frame, first.site.line - 1, replay.linesRanOrUnknown(child))
             histories(frame, replay, child, null)
             frames(frame, replay, child, cursor, overlay)
         }

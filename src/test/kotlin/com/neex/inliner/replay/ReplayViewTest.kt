@@ -26,7 +26,7 @@ class ReplayViewTest : LightJavaCodeInsightFixtureTestCase() {
         }
     """.trimIndent()
 
-    private fun recording(): Recording {
+    private fun recording(exhausted: Set<Site> = emptySet()): Recording {
         val hits = ArrayList<Hit>()
         fun hit(line: Int, vararg values: Pair<String, String>, returns: Boolean = false) {
             hits += Hit(hits.size, 1, Site("p.A", "run", "(I)I", line, "p/A.java"), !returns, returns, 2, values.map { VarValue(it.first, it.second) })
@@ -40,13 +40,13 @@ class ReplayViewTest : LightJavaCodeInsightFixtureTestCase() {
         hit(8, "n" to "2", "total" to "1", "this" to "A#1")
         hit(11, "n" to "2", "total" to "1")
         hit(11, "n" to "2", "total" to "1", returns = true)
-        return Recording(mapOf(1L to "main"), hits, emptySet(), false)
+        return Recording(mapOf(1L to "main"), hits, exhausted, false)
     }
 
-    private fun open(): Pair<ReplayService, Replay> {
+    private fun open(exhausted: Set<Site> = emptySet()): Pair<ReplayService, Replay> {
         myFixture.addFileToProject("p/A.java", source)
         val service = ReplayService.of(project)
-        val replay = Replay(recording())
+        val replay = Replay(recording(exhausted))
         val sources = com.intellij.openapi.application.ReadAction.compute<Map<String, com.intellij.openapi.vfs.VirtualFile>, Throwable> { ReplayService.sourcesOf(project, replay) }
         service.start(replay, "test", sources)
         return service to replay
@@ -54,7 +54,7 @@ class ReplayViewTest : LightJavaCodeInsightFixtureTestCase() {
 
     override fun tearDown() {
         try {
-            ReplayService.of(project).close()
+            ReplayService.of(project).let { it.close(); if (it.foldNotRun) it.toggleFold() }
         } finally {
             super.tearDown()
         }
@@ -91,6 +91,30 @@ class ReplayViewTest : LightJavaCodeInsightFixtureTestCase() {
         val editor = FileEditorManager.getInstance(project).selectedTextEditor!!
         val grey = service.currentView!!.highlighters().filter { it.textAttributesKey != DebuggerColors.EXECUTIONPOINT_ATTRIBUTES }
         assertEquals(listOf("total = 100;"), grey.map { editor.document.getText(it.textRange) })
+    }
+
+    fun testFoldingFoldsWhatThisCallNeverRan() {
+        val (service, replay) = open()
+        replay.moveTo(replay.recording.hits[6])
+        service.move(Step.INTO, null)
+        if (!service.foldNotRun) service.toggleFold()
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor!!
+        assertEquals(listOf("total = 100;"), service.currentView!!.folds().map { editor.document.getText(it.textRange) })
+    }
+
+    fun testLinesThatRanOutOfBudgetAreUnknownNotGreyedNorFolded() {
+        // `total = 100;` (line 9) was cut off by the budget: this call may well have run it
+        val cut = setOf(Site("p.A", "run", "(I)I", 9, "p/A.java"))
+        val (service, replay) = open(cut)
+        replay.moveTo(replay.recording.hits[6])
+        service.move(Step.INTO, null)
+        if (!service.foldNotRun) service.toggleFold()
+        val view = service.currentView!!
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor!!
+        assertEquals(emptyList<String>(), view.highlighters().filter { it.textAttributesKey != DebuggerColors.EXECUTIONPOINT_ATTRIBUTES }.map { editor.document.getText(it.textRange) })
+        assertTrue(view.folds().isEmpty())
+        assertEquals(setOf(9), replay.unknownLines(replay.callOf(replay.current)))
+        assertTrue("a line the call did run is not unknown", 9 !in replay.linesOf(replay.callOf(replay.current)))
     }
 
     fun testCloseRemovesEverything() {

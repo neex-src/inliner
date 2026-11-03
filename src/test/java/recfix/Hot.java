@@ -18,8 +18,19 @@ public class Hot {
         return total;
     }
 
+    static int twice(int k) {
+        int y = k * 2;
+        return y;
+    }
+
     public static void main(String[] args) throws Exception {
-        if (args.length > 0 && args[0].equals("threads")) {
+        if (args.length > 0 && args[0].equals("twice")) {
+            int total = 0;
+            for (int k = 0; k < 20; k++) {
+                total += twice(k);
+            }
+            System.out.println(total);
+        } else if (args.length > 0 && args[0].equals("threads")) {
             Thread t1 = new Thread(() -> work("one"), "worker-1");
             Thread t2 = new Thread(() -> work("three"), "worker-2");
             t1.start();

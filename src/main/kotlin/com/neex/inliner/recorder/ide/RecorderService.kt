@@ -2,6 +2,7 @@ package com.neex.inliner.recorder.ide
 
 import com.intellij.debugger.DebuggerManagerEx
 import com.intellij.debugger.engine.DebugProcessImpl
+import com.intellij.debugger.jdi.StackFrameProxyImpl
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
@@ -51,16 +52,18 @@ class RecorderService(private val project: Project) : Disposable {
     fun whatIf(name: String, text: String) = start(true, LiveRecording.WhatIfRequest(name, text))
 
     private fun start(untilReturn: Boolean, whatIf: LiveRecording.WhatIfRequest?) {
+        // the frame selected in the Frames view, read here on the EDT: the recording acts on it, not on the top frame
+        val selected = DebuggerManagerEx.getInstanceEx(project).context.frameProxy
         val process = currentProcess() ?: return notify("No Java debug session to record.", NotificationType.WARNING)
         if (isRecording) return
         ReadAction.nonBlocking<List<String>> { ProjectPackages.of(project) }
             .inSmartMode(project)
             .expireWith(this)
-            .finishOnUiThread(ModalityState.nonModal()) { begin(process, it, untilReturn, whatIf) }
+            .finishOnUiThread(ModalityState.nonModal()) { begin(process, it, selected, untilReturn, whatIf) }
             .submit(AppExecutorUtil.getAppExecutorService())
     }
 
-    private fun begin(process: DebugProcessImpl, packages: List<String>, untilReturn: Boolean, whatIf: LiveRecording.WhatIfRequest?) {
+    private fun begin(process: DebugProcessImpl, packages: List<String>, selected: StackFrameProxyImpl?, untilReturn: Boolean, whatIf: LiveRecording.WhatIfRequest?) {
         if (isRecording || !process.isAttached) return
         val settings = RecorderSettings.getInstance()
         val scope = settings.scope(packages)
@@ -84,7 +87,7 @@ class RecorderService(private val project: Project) : Disposable {
                 notify("What if: $why", NotificationType.WARNING)
             }, ModalityState.nonModal())
         }
-        recording.start(untilReturn, whatIf, refused) {
+        recording.start(selected, untilReturn, whatIf, refused) {
             if (untilReturn) ApplicationManager.getApplication().invokeLater { process.xdebugProcess?.session?.resume() }
         }
         ticker = Timer(500) { status("Recording — ${"%,d".format(recording.hits)} lines") }.apply { start() }
