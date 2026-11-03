@@ -18,7 +18,7 @@ class InlineEscapeHandler(private val original: EditorActionHandler) : EditorAct
     override fun doExecute(editor: Editor, caret: Caret?, dataContext: DataContext?) {
         val target = escapeTarget(editor)
         if (target != null && !editor.selectionModel.hasSelection() && editor.caretModel.caretCount == 1) {
-            InlineExpansionService.collapse(target)
+            InlineExpansionService.collapse(target, focus = true)
         } else {
             original.execute(editor, caret, dataContext)
         }

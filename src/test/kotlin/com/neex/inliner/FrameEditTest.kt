@@ -99,7 +99,7 @@ class FrameEditTest : LightJavaCodeInsightFixtureTestCase() {
         val frame = frameOnDeclaration()
         val node = FrameRows.frameOf(frame)!!
         FrameEditSession.open(node)
-        InlineExpansionService.collapse(node)
+        InlineExpansionService.collapse(node, focus = true)
         assertTrue(node.disposed)
     }
 

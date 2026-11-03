@@ -87,7 +87,7 @@ class FocusFramesTest : LightJavaCodeInsightFixtureTestCase() {
         trackValue()
         expandCompute()
         val node = myFixture.editor.getUserData(Keys.HOST_STATE)!!.roots[0]
-        InlineExpansionService.collapse(node)
+        InlineExpansionService.collapse(node, focus = true)
 
         val entries = set().entries
         assertEquals(1, entries.size)
