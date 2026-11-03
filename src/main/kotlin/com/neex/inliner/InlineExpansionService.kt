@@ -7,6 +7,8 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
+import com.intellij.util.Processor
+import com.intellij.util.Query
 import com.intellij.util.SingleAlarm
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.progress.ProgressManager
@@ -135,11 +137,22 @@ object InlineExpansionService {
         val method: SmartPsiElementPointer<PsiMethod> = SmartPointerManager.createPointer(m)
     }
 
-    internal fun findImplementations(declaration: PsiMethod): List<PsiMethod> = try {
-        OverridingMethodsSearch.search(declaration).findAll()
-            .filter { !it.hasModifierProperty(PsiModifier.ABSTRACT) }
-            .sortedBy { implLabel(it) }
-            .take(50)
+    /**
+     * At most [limit] concrete overriders, in name order. The search stops once it has them: a
+     * declaration like `Object.toString` has thousands, and asking for all would hang the modal
+     * progress. Which ones make the cut is whichever the index yields first.
+     */
+    internal fun findImplementations(
+        declaration: PsiMethod,
+        limit: Int = 50,
+        search: Query<PsiMethod> = OverridingMethodsSearch.search(declaration),
+    ): List<PsiMethod> = try {
+        val found = ArrayList<PsiMethod>()
+        search.forEach(Processor { m ->
+            if (!m.hasModifierProperty(PsiModifier.ABSTRACT)) found += m
+            found.size < limit
+        })
+        found.sortedBy { implLabel(it) }
     } catch (_: IndexNotReadyException) {
         emptyList()
     }

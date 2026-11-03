@@ -82,4 +82,36 @@ class ImplPickerTest : LightJavaCodeInsightFixtureTestCase() {
         val state = myFixture.editor.getUserData(Keys.HOST_STATE)!!
         assertEquals("E", state.roots[0].methodPtr.element?.containingClass?.name)
     }
+
+    fun testMoreThanFiftyOverridersStopAtFiftyWithoutVisitingTheRest() {
+        val sb = StringBuilder("interface Big { void m(); }\n")
+        repeat(80) { sb.append("class Impl$it implements Big { public void m() { int v = $it; } }\n") }
+        sb.append("class UseBig { void u(Big b) { b.<caret>m(); } }\n")
+        myFixture.configureByText("Big.java", sb.toString())
+        val declaration = com.intellij.openapi.application.ReadAction.compute<com.intellij.psi.PsiMethod, Throwable> {
+            myFixture.findClass("Big").findMethodsByName("m", false).single()
+        }
+        val found = com.intellij.openapi.application.ReadAction.compute<List<com.intellij.psi.PsiMethod>, Throwable> {
+            InlineExpansionService.findImplementations(declaration)
+        }
+        assertEquals(50, found.size)
+
+        // the search is cut off at the limit: a query that counts what it hands out is asked for 51 at most
+        var visited = 0
+        val all = com.intellij.openapi.application.ReadAction.compute<List<com.intellij.psi.PsiMethod>, Throwable> {
+            com.intellij.psi.search.searches.OverridingMethodsSearch.search(declaration).findAll().toList()
+        }
+        val counting = object : AbstractList<com.intellij.psi.PsiMethod>() {
+            override val size get() = all.size
+            override fun get(index: Int): com.intellij.psi.PsiMethod {
+                visited++
+                return all[index]
+            }
+        }
+        val cut = com.intellij.openapi.application.ReadAction.compute<List<com.intellij.psi.PsiMethod>, Throwable> {
+            InlineExpansionService.findImplementations(declaration, search = com.intellij.util.CollectionQuery(counting))
+        }
+        assertEquals(50, cut.size)
+        assertTrue("visited $visited of ${all.size}", visited <= 51)
+    }
 }
