@@ -17,10 +17,11 @@ import com.intellij.psi.PsiIdentifier
 import com.intellij.psi.PsiReferenceExpression
 import com.intellij.psi.PsiVariable
 import com.intellij.psi.util.PsiTreeUtil
+import com.neex.inliner.FrameRows
 import com.neex.inliner.recorder.ValueRenderer
 
 /**
- * A replay key: live while a replay is open, in a source editor, and no debugger is paused — the
+ * A replay key: live while a replay is open, in a source editor (or a frame in one), and no debugger is paused — the
  * debugger's own keys (F8, F7, …) then move the replay's cursor instead ([ReplayPromoter]).
  */
 abstract class ReplayAction : AnAction(), DumbAware {
@@ -39,9 +40,13 @@ abstract class ReplayAction : AnAction(), DumbAware {
     abstract fun perform(service: ReplayService, editor: Editor)
 
     companion object {
+        /** A source editor, or a frame in the editor the replay is painted in: frames are more lines of the same run, their keys are the replay's too. */
+        private fun inSource(service: ReplayService, editor: Editor): Boolean =
+            editor.editorKind == EditorKind.MAIN_EDITOR || FrameRows.frameOf(editor)?.hostState?.hostEditor.let { it != null && it === service.currentView?.editor }
+
         fun live(project: Project?, editor: Editor?): Boolean {
             val service = project?.let(ReplayService::of) ?: return false
-            return service.isOpen && editor != null && editor.editorKind == EditorKind.MAIN_EDITOR && !service.debuggerPaused()
+            return service.isOpen && editor != null && inSource(service, editor) && !service.debuggerPaused()
         }
     }
 }
