@@ -129,7 +129,7 @@ object FocusService {
                 FocusHighlighter.clear(editor)
                 continue
             }
-            val picture = FocusPicture.of(set, psiFile, editor.document)
+            val picture = FocusPicture.of(set, psiFile, editor.document, editor)
             FocusHighlighter.apply(editor, picture)
             FocusFolder.refresh(editor, set, psiFile, picture)
         }

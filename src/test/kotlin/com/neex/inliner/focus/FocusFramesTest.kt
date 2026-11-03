@@ -128,4 +128,18 @@ class FocusFramesTest : LightJavaCodeInsightFixtureTestCase() {
             5,
         )
     }
+
+    fun testACalleeInTheHostsOwnFileDoesNotLightTheHostEditor() {
+        myFixture.configureByText("H.java", sample)
+        trackValue()
+        expandCompute()
+        val host = myFixture.editor
+        val frame = host.getUserData(Keys.HOST_STATE)!!.roots[0].fragmentEditor
+        val text = host.document.text
+        val callee = text.indexOf("int compute")..text.indexOf("int twice")
+        val inCallee = FocusHighlighter.ourHighlighters(host).filter { it.startOffset in callee }
+        assertTrue("x belongs to the frame, not to the callee's text in the host: " + inCallee.map { text.substring(it.startOffset, it.endOffset) }, inCallee.isEmpty())
+        assertTrue("the host still shows value", FocusHighlighter.ourHighlighters(host).any { text.substring(it.startOffset, it.endOffset) == "value" })
+        assertTrue("the frame shows x", FocusHighlighter.ourHighlighters(frame).any { text.substring(it.startOffset, it.endOffset) == "x" })
+    }
 }

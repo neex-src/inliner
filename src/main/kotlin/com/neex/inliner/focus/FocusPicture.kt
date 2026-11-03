@@ -2,6 +2,7 @@ package com.neex.inliner.focus
 
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector
 import com.intellij.openapi.editor.Document
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiMethod
@@ -9,6 +10,7 @@ import com.intellij.psi.PsiVariable
 import com.intellij.psi.search.LocalSearchScope
 import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
+import com.neex.inliner.FrameRows
 
 /** How an occurrence uses its variable. */
 enum class Access {
@@ -77,10 +79,18 @@ class FocusPicture(val touches: List<Touch>, document: Document) {
 
     companion object {
 
-        fun of(set: FocusSet, psiFile: PsiFile, document: Document): FocusPicture {
+        /**
+         * [editor]: the editor the picture is for, when it matters which. A frame is lit with what
+         * its own call derived and only inside its method; the host editor, which may show the same
+         * file (a callee in the host's own file), is not lit with entries derived for a frame.
+         */
+        fun of(set: FocusSet, psiFile: PsiFile, document: Document, editor: Editor? = null): FocusPicture {
+            val frame = editor?.let(FrameRows::frameOf)
             val touches = mutableListOf<Touch>()
             val edgesCache = HashMap<PsiMethod, FocusFlow.Edges>()
             for (entry in set.enabledEntries()) {
+                val source = entry.sourceNode
+                if (editor != null && source != null && source.fragmentEditor !== editor) continue
                 val scope = entry.scopePtr.element ?: continue
                 if (scope.containingFile != psiFile) continue
                 val target = entry.ptr.element ?: continue
@@ -92,6 +102,7 @@ class FocusPicture(val touches: List<Touch>, document: Document) {
                 for ((variable, relation) in trace) {
                     occurrences(variable, scope)
                         .filter { (range, _) -> range.endOffset <= document.textLength }
+                        .filter { (range, _) -> frame == null || !frame.methodRange.isValid || (range.startOffset >= frame.methodRange.startOffset && range.endOffset <= frame.methodRange.endOffset) }
                         .mapTo(touches) { (range, access) -> Touch(entry, variable, relation, range, access) }
                 }
             }
