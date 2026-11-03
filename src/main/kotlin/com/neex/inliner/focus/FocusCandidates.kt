@@ -3,6 +3,7 @@ package com.neex.inliner.focus
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiLocalVariable
 import com.intellij.psi.PsiMethod
+import com.intellij.psi.PsiModifier
 import com.intellij.psi.PsiParameter
 import com.intellij.psi.PsiVariable
 import com.intellij.psi.codeStyle.NameUtil
@@ -14,6 +15,8 @@ data class FocusCandidate(
     val name: String,
     /** Type for params/fields; the (cropped) declaration line for locals. */
     val detail: String,
+    /** A field of a superclass, not of the method's own class. */
+    val inherited: Boolean = false,
 )
 
 object FocusCandidates {
@@ -38,8 +41,15 @@ object FocusCandidates {
                 out += FocusCandidate(p, FocusKind.LOCAL, p.name, declLine(p))
             }
         }
-        method.containingClass?.fields?.forEach { f ->
-            out += FocusCandidate(f, FocusKind.FIELD, f.name, f.type.presentableText)
+        val own = method.containingClass
+        // a subclass's method reads its inherited fields as much as its own; a superclass's private one is not its to read
+        own?.allFields?.forEach { f ->
+            val owner = f.containingClass
+            if (owner == own || owner == null) {
+                out += FocusCandidate(f, FocusKind.FIELD, f.name, f.type.presentableText)
+            } else if (!f.hasModifierProperty(PsiModifier.PRIVATE)) {
+                out += FocusCandidate(f, FocusKind.FIELD, f.name, "${f.type.presentableText} · inherited from ${owner.name}", inherited = true)
+            }
         }
         return method to out
     }

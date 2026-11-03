@@ -54,4 +54,29 @@ class FocusCandidatesTest : LightJavaCodeInsightFixtureTestCase() {
         val all = FocusCandidates.filter(candidates, "")
         assertEquals(candidates.size, all.size)
     }
+
+    fun testInheritedFieldsAreListedAndMarked() {
+        myFixture.configureByText(
+            "Sub.java",
+            """
+            class Base {
+                protected int shared;
+                private int hidden;
+            }
+            class Sub extends Base {
+                int own;
+                void run() {
+                    <caret>shared++;
+                }
+            }
+            """.trimIndent(),
+        )
+        val (_, candidates) = FocusCandidates.collect(myFixture.file, myFixture.editor.caretModel.offset)!!
+        val byName = candidates.associateBy { it.name }
+        assertEquals(false, byName.getValue("own").inherited)
+        assertEquals(FocusKind.FIELD, byName.getValue("shared").kind)
+        assertEquals(true, byName.getValue("shared").inherited)
+        assertTrue(byName.getValue("shared").detail, "Base" in byName.getValue("shared").detail)
+        assertNull("a superclass's private field is not the subclass's to track", byName["hidden"])
+    }
 }
