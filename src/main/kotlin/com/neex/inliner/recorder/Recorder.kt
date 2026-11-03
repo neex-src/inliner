@@ -18,6 +18,15 @@ class Budget(
     /** Hits kept per armed location; then it is switched off — a hot loop costs this much, once. */
     val perLocation: Int = 200,
     val total: Int = 200_000,
+    /**
+     * Follow-up reads (a JDWP round trip each) one hit may spend rendering its values beyond each
+     * value's own type and identity; what does not fit is cut and marked [ValueRenderer.CUT].
+     */
+    val readsPerHit: Int = 32,
+    /** Time one hit may spend on those reads, microseconds. */
+    val microsPerHit: Int = 4_000,
+    /** `this` shows its fields on a call's first hit only: its identity rarely changes between the hits of a call. */
+    val shallowThis: Boolean = true,
 )
 
 /** What the caller does with the breakpoint that was hit. */
@@ -60,9 +69,17 @@ class Recorder(
     private val threads = LinkedHashMap<Long, String>()
     private val exhausted = LinkedHashSet<Site>()
     private var truncated = false
+
+    /** Where each thread was at its last recorded hit: tells a call's first hit from its later ones. */
+    private class Last(val depth: Int, val method: Method, val returned: Boolean)
+
+    private val last = HashMap<Long, Last>()
     private var until: Until? = null
     private var anchor: Site? = null
     private val anchorReturns = HashSet<Location>()
+
+    /** Is [type] one the scope records: the classes worth arming. */
+    fun wants(type: ReferenceType): Boolean = scope.records(type)
 
     /** The breakpoints [type] needs, empty if it is out of scope. Call once per loaded class. */
     @Synchronized
@@ -150,16 +167,19 @@ class Recorder(
         if (truncated) return Verdict.ALL_DONE
         if (!paused && busy(thread)) return Verdict.KEEP
         val spent = point.returns && (counts[location] ?: 0) >= budget.perLocation
+        val id = thread.uniqueID()
+        val method = location.method()
         val depth: Int
         val values: List<VarValue>
         try {
+            // two small reads, not the whole stack: all that is used of it is its size and its frame
+            depth = thread.frameCount() - frameIndex
             if (spent) {
-                depth = thread.frameCount() - frameIndex
                 values = emptyList()
             } else {
-                val frames = thread.frames()
-                depth = frames.size - frameIndex
-                values = read(frames[frameIndex])
+                val before = last[id]
+                val firstOfCall = !budget.shallowThis || before == null || before.depth != depth || before.method != method || before.returned
+                values = read(thread.frame(frameIndex), firstOfCall)
             }
         } catch (_: IncompatibleThreadStateException) {
             return Verdict.KEEP
@@ -168,7 +188,7 @@ class Recorder(
         } catch (_: ObjectCollectedException) {
             return Verdict.KEEP
         }
-        val id = thread.uniqueID()
+        last[id] = Last(depth, method, point.returns)
         threads.getOrPut(id) { thread.name() }
         val hit = Hit(hits.size, id, siteOf(location), point.startsLine, point.returns, depth, values)
         hits += hit
@@ -188,8 +208,12 @@ class Recorder(
         }
     }
 
-    /** Locals (or, compiled without -g, the arguments by position) and `this`. */
-    private fun read(frame: StackFrame): List<VarValue> {
+    /**
+     * Locals (or, compiled without -g, the arguments by position) and `this`: with its fields on a
+     * call's [firstOfCall] hit, else as type and id. Under the per-hit read caps of the [budget].
+     */
+    private fun read(frame: StackFrame, firstOfCall: Boolean): List<VarValue> {
+        renderer.beginHit(budget.readsPerHit, budget.microsPerHit * 1_000L)
         val out = ArrayList<VarValue>()
         val vars = try {
             frame.visibleVariables()
@@ -202,7 +226,7 @@ class Recorder(
         } else {
             frame.argumentValues.forEachIndexed { i, v -> out += VarValue("arg$i", renderer.render(v)) }
         }
-        frame.thisObject()?.let { out += VarValue("this", renderer.render(it)) }
+        frame.thisObject()?.let { out += VarValue("this", if (firstOfCall) renderer.render(it) else renderer.renderShallow(it)) }
         return out
     }
 

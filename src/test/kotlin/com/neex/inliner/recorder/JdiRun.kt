@@ -32,7 +32,8 @@ object JdiRun {
         main: Class<*>,
         vararg args: String,
         scope: RecordScope = RecordScope(listOf("recfix")),
-        budget: Budget = Budget(),
+        /** No time budget by default: a cold JVM would cut values at random; the read cap is deterministic. */
+        budget: Budget = Budget(microsPerHit = Int.MAX_VALUE),
         busy: (ThreadReference) -> Boolean = { false },
         whatIf: WhatIfAt? = null,
         anchor: AnchorAt? = null,

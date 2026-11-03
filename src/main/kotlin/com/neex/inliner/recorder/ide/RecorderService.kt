@@ -90,7 +90,10 @@ class RecorderService(private val project: Project) : Disposable {
         recording.start(selected, untilReturn, whatIf, refused) {
             if (untilReturn) ApplicationManager.getApplication().invokeLater { process.xdebugProcess?.session?.resume() }
         }
-        ticker = Timer(500) { status("Recording — ${"%,d".format(recording.hits)} lines") }.apply { start() }
+        ticker = Timer(250) {
+            val arming = recording.arming
+            status(if (arming != null) "Recording — arming ${arming.first}/${arming.second}" else "Recording — ${"%,d".format(recording.hits)} lines")
+        }.apply { start() }
     }
 
     fun stop() {

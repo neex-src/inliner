@@ -28,7 +28,39 @@ class ValueRenderer(
 ) {
     private val fields = HashMap<ReferenceType, List<Field>>()
 
+    /** Follow-up reads left in this hit (a JDWP round trip each); [Int.MAX_VALUE]: no cap. */
+    private var readsLeft = Int.MAX_VALUE
+    private var deadline = Long.MAX_VALUE
+
+    /** True once a read was refused since [beginHit]: something in what was rendered is cut ([CUT]). */
+    var cut = false
+        private set
+
+    /**
+     * Starts a hit: from here on at most [maxReads] follow-up reads (what the value holds beyond its
+     * own type and identity: fields, elements, a box's number, an enum's name) and [maxNanos] of
+     * time. What does not fit shows as its type and id followed by [CUT].
+     */
+    fun beginHit(maxReads: Int = Int.MAX_VALUE, maxNanos: Long = Long.MAX_VALUE) {
+        readsLeft = maxReads
+        deadline = if (maxNanos == Long.MAX_VALUE) Long.MAX_VALUE else System.nanoTime() + maxNanos
+        cut = false
+    }
+
+    /** One follow-up read allowed? Refusing is remembered in [cut]. */
+    private fun mayRead(): Boolean {
+        if (readsLeft <= 0 || System.nanoTime() >= deadline) {
+            cut = true
+            return false
+        }
+        readsLeft--
+        return true
+    }
+
     fun render(value: Value?): String = render(value, 0)
+
+    /** [value] with nothing below its own type and id: for what rarely changes between hits (`this`). */
+    fun renderShallow(value: Value?): String = render(value, depth)
 
     private fun render(value: Value?, level: Int): String = when (value) {
         null -> "null"
@@ -44,16 +76,22 @@ class ValueRenderer(
     private fun obj(o: ObjectReference, level: Int): String {
         val type = o.referenceType()
         val name = type.name()
-        if (name in BOXES) return render(fieldValue(o, "value"), level)
-        if (type is ClassType && type.isEnum) return simple(name) + "." + (fieldValue(o, "name") as? StringReference)?.value()
         val head = simple(name) + "#" + o.uniqueID()
+        if (name in BOXES) return if (mayRead()) render(fieldValue(o, "value"), level) else head + CUT
+        if (type is ClassType && type.isEnum) {
+            return if (mayRead()) simple(name) + "." + (fieldValue(o, "name") as? StringReference)?.value() else head + CUT
+        }
         when (name) {
             "java.util.ArrayList" -> {
+                if (!mayRead()) return head + CUT
                 val size = (fieldValue(o, "size") as? PrimitiveValue)?.intValue() ?: 0
+                if (level >= depth) return "$head(size $size)"
+                if (!mayRead()) return "$head(size $size)$CUT"
                 val data = fieldValue(o, "elementData") as? ArrayReference
-                return "$head(size $size)" + if (data != null && level < depth) elements(data, size, level) else ""
+                return "$head(size $size)" + if (data != null) elements(data, size, level) else ""
             }
             "java.util.HashMap", "java.util.LinkedHashMap", "java.util.HashSet", "java.util.LinkedHashSet" -> {
+                if (!mayRead()) return head + CUT
                 val map = if (name.endsWith("Set")) fieldValue(o, "map") as? ObjectReference else o
                 val size = map?.let { (fieldValue(it, "size") as? PrimitiveValue)?.intValue() }
                 return "$head(size ${size ?: "?"})"
@@ -62,6 +100,7 @@ class ValueRenderer(
         if (level >= depth) return head
         val shown = fieldsOf(type)
         if (shown.isEmpty()) return head
+        if (!mayRead()) return head + CUT
         val values = o.getValues(shown)
         return head + shown.joinToString(", ", "{", if (fieldsOf(type, all = true).size > shown.size) ", …}" else "}") {
             it.name() + "=" + render(values[it], level + 1)
@@ -76,6 +115,7 @@ class ValueRenderer(
     private fun elements(a: ArrayReference, count: Int, level: Int): String {
         val n = minOf(count, a.length(), maxElements)
         if (n == 0) return "[]"
+        if (!mayRead()) return CUT
         val shown = a.getValues(0, n).joinToString(", ") { render(it, level + 1) }
         return "[" + shown + (if (count > n) ", …" else "") + "]"
     }
@@ -96,6 +136,9 @@ class ValueRenderer(
     private fun escape(s: String) = s.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t").replace("\"", "\\\"")
 
     companion object {
+        /** Ends a value the per-hit caps cut short: `Dto#12⋯`. */
+        const val CUT = "⋯"
+
         private val BOXES = setOf(
             "java.lang.Integer", "java.lang.Long", "java.lang.Short", "java.lang.Byte",
             "java.lang.Double", "java.lang.Float", "java.lang.Boolean", "java.lang.Character",

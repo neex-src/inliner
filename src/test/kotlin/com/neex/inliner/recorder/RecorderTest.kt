@@ -35,7 +35,8 @@ class RecorderTest {
         assertEquals("loyal and bulk, not business: 5 + 4", "9", last.value("percent"))
         assertEquals("600", last.value("subtotal"))
         assertEquals("true", last.value("bulk"))
-        assertTrue(last.value("this"), last.value("this").matches(Regex("""Quotes#\d+\{currency="EUR"}""")))
+        assertTrue("a call's first hit shows this with its fields", discount.first().value("this").matches(Regex("""Quotes#\d+\{currency="EUR"}""")))
+        assertTrue("later hits of the same call show it as type and id", last.value("this").matches(Regex("""Quotes#\d+""")))
         assertTrue("the return is recorded too", run.recording.hits.any { it.site.methodName == "discount" && it.returns })
     }
 
@@ -210,6 +211,50 @@ class RecorderTest {
         assertTrue(hit.value("map"), hit.value("map").matches(Regex("""HashMap#\d+\(size 1\)""")))
         assertEquals("null", hit.value("nothing"))
         assertEquals("'x'", hit.value("ch"))
+    }
+
+    /** Object ids differ between runs of the debuggee: compare values without them. */
+    private fun noIds(text: String) = text.replace(Regex("#\\d+"), "#")
+
+    @Test
+    fun theCapsLoseNothingButWhatTheyCutAndMarkIt() {
+        val unlimited = Budget(readsPerHit = Int.MAX_VALUE, microsPerHit = Int.MAX_VALUE, shallowThis = false)
+        val before = JdiRun.record(Quotes::class.java, budget = unlimited).recording
+        val after = JdiRun.record(Quotes::class.java).recording // the default budget: the read cap, the shallow this
+        assertEquals("the same hits", before.hits.size, after.hits.size)
+        var thisShortened = 0
+        before.hits.zip(after.hits).forEach { (a, b) ->
+            assertEquals(Triple(a.site.className, a.site.methodName, a.site.line), Triple(b.site.className, b.site.methodName, b.site.line))
+            assertEquals(listOf(a.startsLine, a.returns, a.depth), listOf(b.startsLine, b.returns, b.depth))
+            assertEquals(a.values.map { it.name }, b.values.map { it.name })
+            a.values.zip(b.values).forEach { (x, y) ->
+                if (x.name == "this" && noIds(x.text) != noIds(y.text)) {
+                    thisShortened++
+                    assertEquals("this loses its fields, nothing else", noIds(x.text).substringBefore('{'), noIds(y.text))
+                } else {
+                    assertEquals("${a.site.methodName}:${a.site.line} ${x.name}", noIds(x.text), noIds(y.text))
+                }
+            }
+        }
+        assertTrue("some hits were later hits of a call", thisShortened > 0)
+    }
+
+    @Test
+    fun aReadCapCutsTheFollowUpsAndMarksThem() {
+        val run = JdiRun.record(Values::class.java, budget = Budget(readsPerHit = 0))
+        val hit = run.recording.lineHits("look").first()
+        assertEquals("primitives and strings need no follow-up", "\"line\\nbreak\"", hit.value("s"))
+        assertEquals("a box's number is a follow-up too", "Integer#⋯", noIds(hit.value("boxed")))
+        assertTrue(hit.value("box"), noIds(hit.value("box")) == "Values.Box#⋯")
+        assertTrue(hit.value("list"), noIds(hit.value("list")) == "ArrayList#⋯")
+        assertEquals("the hits are all there", JdiRun.record(Values::class.java).recording.hits.size, run.recording.hits.size)
+    }
+
+    @Test
+    fun aTimeBudgetOfNothingCutsTheSameWay() {
+        val hit = JdiRun.record(Values::class.java, budget = Budget(microsPerHit = 0)).recording.lineHits("look").first()
+        assertTrue(hit.value("box"), hit.value("box").endsWith("⋯"))
+        assertEquals("42", JdiRun.record(Values::class.java).recording.lineHits("look").first().value("boxed"))
     }
 
     @Test

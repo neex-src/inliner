@@ -102,22 +102,66 @@ class LiveRecording(
         process.addDebugProcessListener(object : DebugProcessListener {
             override fun processDetached(process: DebugProcess, closedByUser: Boolean) = end(EndReason.DETACHED)
         }, this)
-        process.virtualMachineProxy.allClasses().forEach(::arm)
+        // Classes loaded from here on are armed as they load; the ones loaded already, in chunks below.
         packages.forEach { process.requestsManager.callbackOnPrepareClasses(prepared, "$it.*") }
         // The line the user is paused on ran its event already: it is the recording's first hit —
         // in the selected frame when the recording ends with that frame's return, else the top one.
+        // Its class is armed first: the end of the recording is decided from what is armed.
         val frame = if (untilReturn) selected else process.suspendManager.pausedContext?.frameProxy
         var seed = Verdict.KEEP
         if (frame != null) {
             val thread = frame.threadProxy().threadReference
+            arm(frame.location().declaringType())
             if (untilReturn) recorder.endWhenReturns(thread, frame.frameIndex).forEach(::request)
             seed = recorder.onHit(thread, frame.location(), paused = true, frameIndex = frame.frameIndex)
         }
-        armed()
-        if (seed == Verdict.RETURNED) end(EndReason.RETURNED)
+        todo.addAll(process.virtualMachineProxy.allClasses().filter { it.isPrepared && recorder.wants(it) && it !in this.armed })
+        armTotal = todo.size
+        armingNow = true
+        armChunk {
+            armed()
+            if (seed == Verdict.RETURNED) end(EndReason.RETURNED)
+        }
     }
 
     fun stop() = onManagerThread { end(EndReason.STOPPED) }
+
+    /**
+     * Arms classes for about [CHUNK_NANOS], then leaves the manager thread to whatever else is waiting
+     * for it — a resume, a step, an evaluation — and goes on in a low-priority command. Every
+     * breakpoint is a round trip the debuggee answers with a pause of its own: arming a hundred classes
+     * takes seconds, and the debugger must not stand still for them. [done] runs after the last chunk.
+     */
+    private fun armChunk(done: () -> Unit) {
+        if (ended) return
+        val from = System.nanoTime()
+        var n = 0
+        while (todo.isNotEmpty() && (n == 0 || System.nanoTime() - from < CHUNK_NANOS)) {
+            arm(todo.removeFirst())
+            armDone++
+            n++
+        }
+        if (todo.isEmpty()) {
+            armingNow = false
+            done()
+        } else {
+            onManagerThread(PrioritizedTask.Priority.LOW) { armChunk(done) }
+        }
+    }
+
+    private val todo = ArrayDeque<ReferenceType>()
+
+    @Volatile
+    private var armTotal = 0
+
+    @Volatile
+    private var armDone = 0
+
+    @Volatile
+    private var armingNow = false
+
+    /** Classes armed so far and in all, while the first arming is going on; null before and after it. */
+    val arming: Pair<Int, Int>? get() = if (armingNow) armDone to armTotal else null
 
     private fun arm(type: ReferenceType) {
         if (ended || !type.isPrepared || !armed.add(type)) return
@@ -151,8 +195,8 @@ class LiveRecording(
         process.managerThread.schedule(PrioritizedTask.Priority.LOW, EmptyRunnable.getInstance())
     }
 
-    private fun onManagerThread(work: () -> Unit) {
-        process.managerThread.schedule(PrioritizedTask.Priority.NORMAL) {
+    private fun onManagerThread(priority: PrioritizedTask.Priority = PrioritizedTask.Priority.NORMAL, work: () -> Unit) {
+        process.managerThread.schedule(priority) {
             try {
                 work()
             } catch (e: VMDisconnectedException) {
@@ -171,5 +215,8 @@ class LiveRecording(
 
     private companion object {
         val LOG = logger<LiveRecording>()
+
+        /** How long a chunk of arming holds the manager thread. */
+        const val CHUNK_NANOS = 30_000_000L
     }
 }
