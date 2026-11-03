@@ -13,6 +13,7 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Computable
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiJavaFile
+import com.intellij.psi.PsiMethod
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.SearchTextField
@@ -62,15 +63,19 @@ object FocusPopup {
     }
 
     /**
-     * The rows for [pattern]: tracked entries first, then the untracked candidates. A non-blank
+     * The rows for [pattern]: tracked entries first, then the untracked candidates (not those an edit has invalidated). A non-blank
      * pattern filters the tracked entries too. Reads PSI (smart pointers): call in a read action.
      */
     internal fun listing(set: FocusSet, candidates: List<FocusCandidate>, pattern: String): List<Item> {
         val matches = FocusCandidates.nameFilter(pattern)
         val tracked = set.entries.mapNotNull { it.ptr.element }.toSet()
         return set.entries.filter { matches(it.name) }.map { Item.Tracked(it, it.scopePtr.element?.name) } +
-            FocusCandidates.filter(candidates, pattern).filter { it.variable !in tracked }.map { Item.Candidate(it) }
+            FocusCandidates.filter(candidates.filter { it.variable.isValid }, pattern).filter { it.variable !in tracked }.map { Item.Candidate(it) }
     }
+
+    /** Adds [candidate] as the dialog's Enter does; null when an edit since the dialog opened made it (or the method) stale. */
+    internal fun addCandidate(set: FocusSet, candidate: FocusCandidate, method: PsiMethod): FocusEntry? =
+        if (candidate.variable.isValid && method.isValid) FocusService.add(set, candidate.variable, method) else null
 
     /** Typing a filter means "find one to add": select the first matching candidate, not a tracked entry. */
     internal fun preferredIndex(items: List<Item>, pattern: String): Int =
@@ -126,7 +131,7 @@ object FocusPopup {
                         item.entry.enabled = !item.entry.enabled
                         item.entry
                     }
-                    is Item.Candidate -> FocusService.add(set, item.candidate.variable, method)
+                    is Item.Candidate -> addCandidate(set, item.candidate, method)
                 }
                 FocusService.refreshAll(set)
                 rebuild { items -> items.indexOfFirst { it is Item.Tracked && it.entry === acted }.takeIf { it >= 0 } ?: keep }

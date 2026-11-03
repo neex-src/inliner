@@ -57,6 +57,33 @@ class LibraryExpansionTest : LightJavaCodeInsightFixtureTestCase() {
         assertTrue("mirror should at least show the signature, got: $visible", visible.contains("fortyTwo"))
     }
 
+    fun testAProjectClassShadowedByALibraryClassResolvesToTheProjectSource() {
+        val own = myFixture.addFileToProject("libfoo/Foo.java", "package libfoo;\npublic class Foo { public int bar() { return 1; } }")
+        // the library ahead of the module's own sources: what a classpath order can do to a lookup in allScope
+        val original = com.intellij.openapi.roots.ModuleRootManager.getInstance(module).orderEntries.toList()
+        com.intellij.openapi.roots.ModuleRootModificationUtil.updateModel(module) { model ->
+            val entries = model.orderEntries
+            val (sources, rest) = entries.partition { it is com.intellij.openapi.roots.ModuleSourceOrderEntry }
+            model.rearrangeOrderEntries((rest + sources).toTypedArray())
+        }
+        val replay = com.neex.inliner.replay.Replay(
+            com.neex.inliner.recorder.Recording(
+                mapOf(1L to "main"),
+                listOf(
+                    com.neex.inliner.recorder.Hit(
+                        0, 1, com.neex.inliner.recorder.Site("libfoo.Foo", "bar", "()I", 2, "libfoo/Foo.java"), true, false, 1, emptyList(),
+                    ),
+                ),
+                emptySet(), false,
+            ),
+        )
+        val found = com.intellij.openapi.application.ReadAction.compute<Map<String, com.intellij.openapi.vfs.VirtualFile>, Throwable> {
+            com.neex.inliner.replay.ReplayService.sourcesOf(project, replay)
+        }
+        com.intellij.openapi.roots.ModuleRootModificationUtil.updateModel(module) { model -> model.rearrangeOrderEntries(model.orderEntries.sortedBy { e -> original.indexOfFirst { it.presentableName == e.presentableName } }.toTypedArray()) }
+        assertEquals(own.virtualFile, found["libfoo.Foo"])
+    }
+
     companion object {
         private val libRoot = File("src/test/testData/lib").absolutePath
 

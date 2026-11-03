@@ -57,4 +57,22 @@ class FocusPopupTest : LightJavaCodeInsightFixtureTestCase() {
         assertEquals(listOf("+limit"), names(items))
         assertEquals(0, FocusPopup.preferredIndex(items, "lim"))
     }
+
+    fun testAnEditWhileThePopupIsUpDropsTheRowsItInvalidated() {
+        val (set, candidates) = setUpPopup("other")
+        val method = FocusCandidates.collect(myFixture.file, myFixture.editor.caretModel.offset)!!.first
+        val limit = candidates.first { it.name == "limit" }
+        // the user rewrites the method while the dialog is open: the PSI it listed is gone
+        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) {
+            myFixture.editor.document.setText("class P {\n}")
+        }
+        com.intellij.psi.PsiDocumentManager.getInstance(project).commitAllDocuments()
+        assertFalse("the listed parameter is stale", limit.variable.isValid)
+
+        val items = FocusPopup.listing(set, candidates, "")
+        assertTrue("no row of an invalid element: " + names(items), items.none { it is FocusPopup.Item.Candidate && !it.candidate.variable.isValid })
+        val before = set.entries.size
+        assertNull("adding a stale row touches nothing", FocusPopup.addCandidate(set, limit, method))
+        assertEquals(before, set.entries.size)
+    }
 }

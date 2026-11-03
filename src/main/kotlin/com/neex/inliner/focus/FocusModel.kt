@@ -65,6 +65,9 @@ class FocusSet(val hostEditor: Editor, val project: Project) : Disposable {
     /** Expansion frames that already carry a dispose-time cleanup for derived entries. */
     val cleanupNodes = mutableSetOf<ExpansionNode>()
 
+    /** The debounce that repaints after an edit: the host document and every frame's feed it. */
+    var refreshAlarm: com.intellij.util.SingleAlarm? = null
+
     fun enabledEntries(): List<FocusEntry> = entries.filter { it.enabled }
 
     fun nextColorIndex(): Int {

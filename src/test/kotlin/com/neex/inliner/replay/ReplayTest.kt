@@ -145,4 +145,32 @@ class ReplayTest {
         val r = replay()
         assertEquals(listOf("main" to 0, "f" to 1), r.callList().map { (call, level) -> call.method.methodName to level })
     }
+
+    @Test
+    fun lastAndNextChangeStayFastOnACallWithThousandsOfHits() {
+        // a loop of 20,000 runs in which `n` never changes: the scan for its change walks the whole call
+        val r = Replay(
+            Recording(
+                mapOf(1L to "main"),
+                (0 until 20_000).map { i ->
+                    Hit(i, 1, Site("p.A", "spin", "()V", 5 + i % 2, "p/A.java"), true, false, 2, listOf(VarValue("n", "7"), VarValue("i", "${i / 2}")))
+                },
+                emptySet(), false,
+            ),
+        )
+        val start = System.nanoTime()
+        r.moveTo(r.recording.hits[19_999])
+        val last = r.lastChange("n")
+        r.moveTo(r.recording.hits[0])
+        val next = r.nextChange("n")
+        val ms = (System.nanoTime() - start) / 1_000_000
+        println("lastChange + nextChange over 20000 hits: $ms ms")
+        assertEquals(null, last)
+        assertEquals(null, next)
+        assertTrue("took $ms ms", ms < 100)
+        // and they still find a change
+        r.moveTo(r.recording.hits[10_000])
+        assertEquals(9_999, r.lastChange("i")!!.seq)
+        assertEquals(10_001, r.nextChange("i")!!.seq)
+    }
 }

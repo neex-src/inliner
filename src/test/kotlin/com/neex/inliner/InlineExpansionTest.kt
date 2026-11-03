@@ -195,4 +195,68 @@ class InlineExpansionTest : LightJavaCodeInsightFixtureTestCase() {
         assertTrue("the edit should have collapsed the frame", node.disposed)
         assertTrue("an edit must not take the keyboard", focusAsked.isEmpty())
     }
+
+    fun testAMethodTypedRightAfterTheCalleeStaysOutOfTheFrame() {
+        myFixture.configureByText("A.java", sample)
+        InlineExpansionService.toggle(myFixture.editor, project)
+        val node = myFixture.editor.getUserData(Keys.HOST_STATE)!!.roots[0]
+        val at = node.methodRange.endOffset
+        WriteCommandAction.runWriteCommandAction(project) {
+            myFixture.editor.document.insertString(at, " int extra() { return 1; }")
+        }
+        PlatformTestUtil.waitWithEventsDispatching(
+            "the frame is the callee again, not the callee and what was typed after it",
+            { node.methodRange.endOffset == node.methodPtr.element!!.textRange.endOffset },
+            5,
+        )
+        assertEquals(at, node.methodRange.endOffset)
+        val hidden = node.fragmentEditor.foldingModel.getCollapsedRegionAtOffset(at + 5)
+        assertNotNull("the typed method is clipped away", hidden)
+    }
+
+    fun testEscapeFromInsideAFrameCollapsesTheMostRecentOfItsOwnTree() {
+        myFixture.configureByText(
+            "E.java",
+            """
+            class E {
+                void host() {
+                    <caret>a();
+                    b();
+                }
+                void a() { c(); }
+                void b() { int q = 1; }
+                void c() { int w = 2; }
+            }
+            """.trimIndent(),
+        )
+        val host = myFixture.editor
+        InlineExpansionService.toggle(host, project)                                   // A, from the host
+        val state = host.getUserData(Keys.HOST_STATE)!!
+        val a = state.roots[0]
+        a.fragmentEditor.caretModel.moveToOffset(a.fragmentEditor.document.text.indexOf("c()"))
+        InlineExpansionService.toggle(a.fragmentEditor, project)                        // B, inside A
+        host.caretModel.moveToOffset(host.document.text.indexOf("b();"))
+        InlineExpansionService.toggle(host, project)                                    // C, from the host, the newest of all
+        val (b, c) = a.children.single() to state.roots[1]
+        assertEquals(listOf(a, b, c), state.creationOrder.toList())
+
+        var delegated = 0
+        val escape = InlineEscapeHandler(object : com.intellij.openapi.editor.actionSystem.EditorActionHandler() {
+            override fun doExecute(editor: Editor, caret: com.intellij.openapi.editor.Caret?, dataContext: com.intellij.openapi.actionSystem.DataContext?) {
+                delegated++
+            }
+        })
+        escape.execute(a.fragmentEditor, null, null)
+        assertTrue("from A, the newest of A's tree: B, not the host's newer C", b.disposed)
+        assertFalse(a.disposed)
+        assertFalse(c.disposed)
+        escape.execute(a.fragmentEditor, null, null)
+        assertTrue("then A itself", a.disposed)
+        assertFalse("C is not in A's tree: untouched", c.disposed)
+        escape.execute(host, null, null)
+        assertTrue("from the host: the newest", c.disposed)
+        assertEquals(0, delegated)
+        escape.execute(host, null, null)
+        assertEquals("nothing left: Esc falls through", 1, delegated)
+    }
 }

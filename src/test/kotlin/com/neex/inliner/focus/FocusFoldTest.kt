@@ -112,4 +112,28 @@ class FocusFoldTest : LightJavaCodeInsightFixtureTestCase() {
         FocusService.refreshAll(set)
         assertTrue("downstream line folds in direct-only mode", lineFolded(lineOf("System.out.println(r)")))
     }
+
+    fun testAFoldTheUserMadeBeforeWins() {
+        val set = trackAlphaAndFold()
+        FocusFolder.clear(myFixture.editor)
+        val doc = myFixture.editor.document
+        // the user's own fold, from noise3 to the `if` header: it cuts across the run focus wants to fold
+        val from = doc.getLineStartOffset(lineOf("int noise3 = 3"))
+        val to = doc.getLineEndOffset(lineOf("if (a > 0)"))
+        var user: com.intellij.openapi.editor.FoldRegion? = null
+        myFixture.editor.foldingModel.runBatchFoldingOperation {
+            user = myFixture.editor.foldingModel.addFoldRegion(from, to, "mine")!!.also { it.isExpanded = false }
+        }
+        repeat(2) { FocusService.refreshAll(set) }
+
+        val mine = user!!
+        assertTrue(mine.isValid)
+        assertFalse("still collapsed as the user left it", mine.isExpanded)
+        assertEquals("mine", mine.placeholderText)
+        assertFalse("and not one of ours", mine in FocusFolder.ourRegions(myFixture.editor))
+        val crossing = FocusFolder.ourRegions(myFixture.editor).filter {
+            it.startOffset < mine.endOffset && mine.startOffset < it.endOffset && !(it.startOffset <= mine.startOffset && mine.endOffset <= it.endOffset)
+        }
+        assertTrue("none of ours cuts across it", crossing.isEmpty())
+    }
 }

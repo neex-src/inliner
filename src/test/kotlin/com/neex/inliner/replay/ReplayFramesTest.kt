@@ -129,4 +129,21 @@ class ReplayFramesTest : LightJavaCodeInsightFixtureTestCase() {
         service.close()
         assertTrue(host.inlayModel.getAfterLineEndElementsInRange(0, host.document.textLength).isEmpty())
     }
+
+    fun testReplayKeysWorkWithTheCaretInAFrame() {
+        cursorAt(6)
+        val frame = expand("twice(a)")
+        assertTrue("a frame of the painted editor is part of the run", ReplayAction.live(project, frame))
+        val stranger = com.intellij.openapi.editor.EditorFactory.getInstance().createViewer(frame.document, project)
+        try {
+            assertFalse("an editor that is not a frame of it is not", ReplayAction.live(project, stranger))
+        } finally {
+            com.intellij.openapi.editor.EditorFactory.getInstance().releaseEditor(stranger)
+        }
+        frame.caretModel.moveToOffset(frame.document.text.indexOf("return y;") + 3)
+        ReplayToLineAction().perform(service, frame)
+        assertEquals("the next run of the frame's line", 10, replay.current.seq)
+        frame.caretModel.moveToOffset(frame.document.text.indexOf("int y = x") + 5)
+        assertEquals("y", variableAtCaret(frame))
+    }
 }

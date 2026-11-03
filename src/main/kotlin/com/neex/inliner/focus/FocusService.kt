@@ -129,7 +129,7 @@ object FocusService {
                 FocusHighlighter.clear(editor)
                 continue
             }
-            val picture = FocusPicture.of(set, psiFile, editor.document)
+            val picture = FocusPicture.of(set, psiFile, editor.document, editor)
             FocusHighlighter.apply(editor, picture)
             FocusFolder.refresh(editor, set, psiFile, picture)
         }
@@ -157,6 +157,7 @@ object FocusService {
             300,
             set,
         )
+        set.refreshAlarm = alarm
         set.hostEditor.document.addDocumentListener(
             object : DocumentListener {
                 override fun documentChanged(event: DocumentEvent) {
@@ -164,6 +165,25 @@ object FocusService {
                 }
             },
             set,
+        )
+    }
+
+    /**
+     * A frame's document is the callee's own, often another file than the host's: edits made in the
+     * frame (an intention, typing) must repaint focus like edits in the host do. Called for every
+     * new frame, whether or not anything is tracked yet; goes with the frame.
+     */
+    fun watchFrame(node: ExpansionNode) {
+        val document = node.fragmentEditor.document
+        if (document === node.hostState.hostEditor.document) return // the host's own listener has it
+        document.addDocumentListener(
+            object : DocumentListener {
+                override fun documentChanged(event: DocumentEvent) {
+                    val set = node.hostState.hostEditor.getUserData(FocusKeys.FOCUS_SET) ?: return
+                    if (set.entries.isNotEmpty()) set.refreshAlarm?.cancelAndRequest()
+                }
+            },
+            node,
         )
     }
 

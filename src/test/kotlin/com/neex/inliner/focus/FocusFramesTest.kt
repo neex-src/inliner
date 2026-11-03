@@ -104,4 +104,42 @@ class FocusFramesTest : LightJavaCodeInsightFixtureTestCase() {
         FocusService.remove(set, root)
         assertTrue(set.entries.isEmpty())
     }
+
+    fun testEditInsideAFrameRefreshesFocusAfterTheDebounce() {
+        // the callee lives in another file: its document is not the host's
+        myFixture.addFileToProject("C.java", "class C {\n    static int compute(int x) {\n        return x;\n    }\n}")
+        myFixture.configureByText(
+            "H.java",
+            "class H {\n    void caller() {\n        int value = 5;\n        C.compute(value);\n    }\n}",
+        )
+        trackValue()
+        moveTo("compute(value)")
+        InlineExpansionService.toggle(myFixture.editor, project)
+        val frame = myFixture.editor.getUserData(Keys.HOST_STATE)!!.roots[0].fragmentEditor
+        val before = FocusHighlighter.ourHighlighters(frame).size
+        assertTrue("x is painted in the frame", before > 0)
+
+        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) {
+            frame.document.insertString(frame.document.text.indexOf("return x"), "int y = x + x;\n        ")
+        }
+        com.intellij.testFramework.PlatformTestUtil.waitWithEventsDispatching(
+            "the two new x are painted once the debounce has passed",
+            { FocusHighlighter.ourHighlighters(frame).size >= before + 2 },
+            5,
+        )
+    }
+
+    fun testACalleeInTheHostsOwnFileDoesNotLightTheHostEditor() {
+        myFixture.configureByText("H.java", sample)
+        trackValue()
+        expandCompute()
+        val host = myFixture.editor
+        val frame = host.getUserData(Keys.HOST_STATE)!!.roots[0].fragmentEditor
+        val text = host.document.text
+        val callee = text.indexOf("int compute")..text.indexOf("int twice")
+        val inCallee = FocusHighlighter.ourHighlighters(host).filter { it.startOffset in callee }
+        assertTrue("x belongs to the frame, not to the callee's text in the host: " + inCallee.map { text.substring(it.startOffset, it.endOffset) }, inCallee.isEmpty())
+        assertTrue("the host still shows value", FocusHighlighter.ourHighlighters(host).any { text.substring(it.startOffset, it.endOffset) == "value" })
+        assertTrue("the frame shows x", FocusHighlighter.ourHighlighters(frame).any { text.substring(it.startOffset, it.endOffset) == "x" })
+    }
 }

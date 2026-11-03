@@ -7,6 +7,9 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
+import com.intellij.util.Processor
+import com.intellij.util.Query
+import com.intellij.util.SingleAlarm
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.IndexNotReadyException
@@ -134,11 +137,22 @@ object InlineExpansionService {
         val method: SmartPsiElementPointer<PsiMethod> = SmartPointerManager.createPointer(m)
     }
 
-    internal fun findImplementations(declaration: PsiMethod): List<PsiMethod> = try {
-        OverridingMethodsSearch.search(declaration).findAll()
-            .filter { !it.hasModifierProperty(PsiModifier.ABSTRACT) }
-            .sortedBy { implLabel(it) }
-            .take(50)
+    /**
+     * At most [limit] concrete overriders, in name order. The search stops once it has them: a
+     * declaration like `Object.toString` has thousands, and asking for all would hang the modal
+     * progress. Which ones make the cut is whichever the index yields first.
+     */
+    internal fun findImplementations(
+        declaration: PsiMethod,
+        limit: Int = 50,
+        search: Query<PsiMethod> = OverridingMethodsSearch.search(declaration),
+    ): List<PsiMethod> = try {
+        val found = ArrayList<PsiMethod>()
+        search.forEach(Processor { m ->
+            if (!m.hasModifierProperty(PsiModifier.ABSTRACT)) found += m
+            found.size < limit
+        })
+        found.sortedBy { implLabel(it) }
     } catch (_: IndexNotReadyException) {
         emptyList()
     }
@@ -219,6 +233,7 @@ object InlineExpansionService {
         Disposer.register(frame ?: state, node)
 
         installInvalidationListeners(node, inlay)
+        FocusService.watchFrame(node)
         FrameCaret.install(node)
         relayoutUp(node)
 
@@ -274,15 +289,34 @@ object InlineExpansionService {
                 }
             }
         }, node)
+        // methodRange is greedy to the right, so a method typed right after the callee's `}` ends up
+        // inside it: once the edit is committed, the frame is clipped to the method PSI says again.
+        val reclip = SingleAlarm(
+            { PsiDocumentManager.getInstance(node.parentEditor.project!!).performLaterWhenAllCommitted { reclip(node) } },
+            200, node,
+        )
         // Callee method deleted / emptied by an edit in its own file → collapse.
         node.fragmentEditor.document.addDocumentListener(object : DocumentListener {
             override fun documentChanged(event: DocumentEvent) {
                 if (node.disposed) return
+                reclip.cancelAndRequest()
                 if (!node.methodRange.isValid || node.methodRange.startOffset == node.methodRange.endOffset) {
                     ApplicationManager.getApplication().invokeLater { if (!node.disposed) collapse(node, focus = false) }
                 }
             }
         }, node)
+    }
+
+    private fun reclip(node: ExpansionNode) {
+        if (node.disposed || node.fragmentEditor.isDisposed) return
+        val range = node.methodPtr.element?.textRange ?: return
+        val old = node.methodRange
+        if (old.isValid && old.startOffset == range.startOffset && old.endOffset == range.endOffset) return
+        node.methodRange = node.fragmentEditor.document.createRangeMarker(range).apply { isGreedyToRight = true }
+        old.dispose()
+        FragmentEditorFactory.clipToRange(node.fragmentEditor, range)
+        node.hostState.hostEditor.getUserData(FocusKeys.FOCUS_SET)?.let(FocusService::refreshAll) // clipping cleared the folds
+        relayoutUp(node)
     }
 
     /**
