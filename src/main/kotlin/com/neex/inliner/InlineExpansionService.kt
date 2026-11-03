@@ -45,6 +45,11 @@ object InlineExpansionService {
             hint(editor, "No method call at caret")
             return
         }
+        toggleCall(editor, project, call)
+    }
+
+    /** What the toggle action does with the caret on [call]: expand it, or collapse it when already expanded. */
+    fun toggleCall(editor: Editor, project: Project, call: PsiCallExpression) {
         val frame = editor.getUserData(Keys.FRAME_NODE)
         val siblings = frame?.children ?: editor.getUserData(Keys.HOST_STATE)?.roots
         val existing = siblings?.firstOrNull {

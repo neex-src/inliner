@@ -1,6 +1,8 @@
 package com.neex.inliner
 
+import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.dsl.builder.bindIntText
@@ -23,6 +25,12 @@ class InlinerConfigurable : BoundConfigurable("Inline Reading Mode") {
         val focus = FocusSettings.getInstance().state
         val recorder = RecorderSettings.getInstance().state
         return panel {
+            group("Expansion") {
+                row {
+                    checkBox("Show a gutter icon on lines with a call that can be expanded")
+                        .bindSelected(focus::gutterIcons)
+                }
+            }
             group("Focus") {
                 row("Fold to focus keeps:") {
                     comboBox(FoldRule.entries, textListCellRenderer { it?.title })
@@ -60,6 +68,9 @@ class InlinerConfigurable : BoundConfigurable("Inline Reading Mode") {
             val set = editor.getUserData(FocusKeys.FOCUS_SET) ?: continue
             set.foldRule = rule
             FocusService.refreshAll(set)
+        }
+        for (project in ProjectManager.getInstance().openProjects) {
+            DaemonCodeAnalyzer.getInstance(project).restart(this)
         }
     }
 }
