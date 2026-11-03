@@ -242,7 +242,10 @@ class ReplayService(private val project: Project) : Disposable {
         fun sourcesOf(project: Project, replay: Replay): Map<String, VirtualFile> {
             val scope = GlobalSearchScope.allScope(project)
             return replay.recording.hits.map { it.site }.distinctBy { it.className }.mapNotNull { site ->
-                val file = JavaPsiFacade.getInstance(project).findClass(site.className.replace('$', '.'), scope)
+                val facade = JavaPsiFacade.getInstance(project)
+                val name = site.className.replace('$', '.')
+                // the project's own class first: a library class of the same name must not shadow it
+                val file = (facade.findClass(name, GlobalSearchScope.projectScope(project)) ?: facade.findClass(name, scope))
                     ?.navigationElement?.containingFile?.virtualFile
                     ?: site.sourcePath?.let { path ->
                         FilenameIndex.getVirtualFilesByName(path.substringAfterLast('/'), scope).firstOrNull { it.path.endsWith(path) }
