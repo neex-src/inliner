@@ -123,7 +123,7 @@ class ReplayFramesTest : LightJavaCodeInsightFixtureTestCase() {
         cursorAt(6)
         val frame = expand("twice(a)")
         assertTrue(service.currentView!!.inlayTexts(frame).isNotEmpty())
-        InlineExpansionService.collapse(FrameRows.framesIn(host).single())
+        InlineExpansionService.collapse(FrameRows.framesIn(host).single(), focus = true)
         assertTrue(frame.isDisposed)
         assertTrue("the host is repainted", service.currentView!!.inlayTexts().isNotEmpty())
         service.close()

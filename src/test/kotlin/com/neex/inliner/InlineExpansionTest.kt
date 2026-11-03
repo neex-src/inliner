@@ -1,5 +1,8 @@
 package com.neex.inliner
 
+import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.editor.Editor
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 
 class InlineExpansionTest : LightJavaCodeInsightFixtureTestCase() {
@@ -99,7 +102,7 @@ class InlineExpansionTest : LightJavaCodeInsightFixtureTestCase() {
         assertEquals("helper", child.methodPtr.element?.name)
         assertEquals(2, state.creationOrder.size)
 
-        InlineExpansionService.collapse(root)
+        InlineExpansionService.collapse(root, focus = true)
 
         assertTrue(child.disposed)
         assertTrue(child.fragmentEditor.isDisposed)
@@ -127,5 +130,69 @@ class InlineExpansionTest : LightJavaCodeInsightFixtureTestCase() {
         myFixture.configureByText("C.java", "class C { int <caret>field; void m() {} }")
         InlineExpansionService.toggle(myFixture.editor, project)
         assertNull(myFixture.editor.getUserData(Keys.HOST_STATE))
+    }
+
+    // ---- who gets the keyboard when a frame collapses ----
+
+    private val focusAsked = mutableListOf<Editor>()
+    private val realRequester = InlineExpansionService.focusRequester
+
+    override fun setUp() {
+        super.setUp()
+        focusAsked.clear()
+        InlineExpansionService.focusRequester = { focusAsked.add(it) }
+    }
+
+    override fun tearDown() {
+        try {
+            InlineExpansionService.focusRequester = realRequester
+        } finally {
+            super.tearDown()
+        }
+    }
+
+    fun testToggleCollapseAsksForFocus() {
+        myFixture.configureByText("A.java", sample)
+        InlineExpansionService.toggle(myFixture.editor, project)
+        InlineExpansionService.toggle(myFixture.editor, project)
+        assertEquals(listOf(myFixture.editor), focusAsked)
+    }
+
+    fun testEscapeCollapseAsksForFocus() {
+        myFixture.configureByText("A.java", sample)
+        InlineExpansionService.toggle(myFixture.editor, project)
+        myFixture.performEditorAction("EditorEscape")
+        assertEquals(listOf(myFixture.editor), focusAsked)
+    }
+
+    fun testCollapseCausedByEmptyingCalleeDoesNotAskForFocus() {
+        myFixture.configureByText("A.java", sample)
+        InlineExpansionService.toggle(myFixture.editor, project)
+        val state = myFixture.editor.getUserData(Keys.HOST_STATE)!!
+        val node = state.roots.single()
+
+        WriteCommandAction.runWriteCommandAction(project) {
+            node.fragmentEditor.document.deleteString(node.methodRange.startOffset, node.methodRange.endOffset)
+        }
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+
+        assertTrue("the edit should have collapsed the frame", node.disposed)
+        assertTrue("an edit must not take the keyboard", focusAsked.isEmpty())
+    }
+
+    fun testCollapseCausedByDeletingCallLineDoesNotAskForFocus() {
+        myFixture.configureByText("A.java", sample)
+        InlineExpansionService.toggle(myFixture.editor, project)
+        val node = myFixture.editor.getUserData(Keys.HOST_STATE)!!.roots.single()
+
+        WriteCommandAction.runWriteCommandAction(project) {
+            val doc = myFixture.editor.document
+            val line = doc.getLineNumber(node.callRange.startOffset)
+            doc.deleteString(doc.getLineStartOffset(line), doc.getLineEndOffset(line))
+        }
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+
+        assertTrue("the edit should have collapsed the frame", node.disposed)
+        assertTrue("an edit must not take the keyboard", focusAsked.isEmpty())
     }
 }

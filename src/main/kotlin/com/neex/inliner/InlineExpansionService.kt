@@ -53,7 +53,7 @@ object InlineExpansionService {
                 it.callRange.endOffset == call.textRange.endOffset
         }
         if (existing != null) {
-            collapse(existing)
+            collapse(existing, focus = true)
         } else {
             expand(editor as EditorEx, project, call, frame)
         }
@@ -193,7 +193,7 @@ object InlineExpansionService {
         node.fragmentEditor = fragEditor
         FragmentEditorFactory.redirectWheelTo(fragEditor, state.hostEditor)
 
-        val header = FragmentEditorFactory.createHeader(breadcrumbText(node, method)) { collapse(node) }
+        val header = FragmentEditorFactory.createHeader(breadcrumbText(node, method)) { collapse(node, focus = true) }
         node.wrapper = FragmentEditorFactory.createWrapper(
             header, fragEditor.component, callIndentPx(invokingEditor, callRange.startOffset), FramePanel(node),
         )
@@ -222,7 +222,16 @@ object InlineExpansionService {
         project.messageBus.syncPublisher(FrameListener.TOPIC).framesChanged(state.hostEditor)
     }
 
-    fun collapse(node: ExpansionNode) {
+    /** The one place collapse asks for the keyboard; a seam so tests can see whether it was asked. */
+    internal var focusRequester: (Editor) -> Unit = {
+        IdeFocusManager.getGlobalInstance().requestFocus(it.contentComponent, true)
+    }
+
+    /**
+     * [focus]: take the keyboard to the parent editor. True when the user collapsed (toggle,
+     * Esc, header click); false when an edit elsewhere did, so focus stays where the user is.
+     */
+    fun collapse(node: ExpansionNode, focus: Boolean) {
         if (node.disposed) return
         val parentEditor = node.parentEditor
         val parent = node.parent
@@ -232,7 +241,7 @@ object InlineExpansionService {
         host.project?.takeUnless { it.isDisposed }?.messageBus?.syncPublisher(FrameListener.TOPIC)?.framesChanged(host)
         if (!parentEditor.isDisposed) {
             if (caretOffset != null) parentEditor.caretModel.moveToOffset(caretOffset)
-            IdeFocusManager.getGlobalInstance().requestFocus(parentEditor.contentComponent, true)
+            if (focus) focusRequester(parentEditor)
         }
         relayoutUp(parent)
     }
@@ -256,7 +265,7 @@ object InlineExpansionService {
         node.parentEditor.inlayModel.addListener(object : com.intellij.openapi.editor.InlayModel.SimpleAdapter() {
             override fun onRemoved(removed: Inlay<*>) {
                 if (removed === inlay && !node.disposed) {
-                    ApplicationManager.getApplication().invokeLater { if (!node.disposed) collapse(node) }
+                    ApplicationManager.getApplication().invokeLater { if (!node.disposed) collapse(node, focus = false) }
                 }
             }
         }, node)
@@ -265,7 +274,7 @@ object InlineExpansionService {
             override fun documentChanged(event: DocumentEvent) {
                 if (node.disposed) return
                 if (!node.methodRange.isValid || node.methodRange.startOffset == node.methodRange.endOffset) {
-                    ApplicationManager.getApplication().invokeLater { if (!node.disposed) collapse(node) }
+                    ApplicationManager.getApplication().invokeLater { if (!node.disposed) collapse(node, focus = false) }
                 }
             }
         }, node)
