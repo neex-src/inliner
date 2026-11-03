@@ -8,8 +8,6 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
-import com.neex.inliner.recorder.CallTree
-import com.neex.inliner.recorder.Invocation
 import com.neex.inliner.recorder.ide.RecordingStore
 import java.nio.file.Path
 import java.time.LocalDateTime
@@ -36,25 +34,36 @@ class ReplayPickAction : AnAction(), DumbAware {
         override fun toString() = label
     }
 
-    internal fun choices(project: Project): List<Choice> {
+    internal fun choices(project: Project, store: RecordingStore = RecordingStore.of(project)): List<Choice> {
         val service = ReplayService.of(project)
-        val store = RecordingStore.of(project)
         val out = ArrayList<Choice>()
         if (service.isOpen) out += Choice("Close the replay") { service.close() }
         store.list().take(MAX).forEach { file -> out += Choice(label(store, file)) { service.open(file) } }
+        if (store.list().isNotEmpty()) out += Choice("Delete a recording…") { ApplicationManager.getApplication().invokeLater { showDelete(project, store) } }
         return out
     }
 
+    /** One row per recording (newest first): choosing it deletes its file. */
+    internal fun deleteChoices(store: RecordingStore): List<Choice> =
+        store.list().map { file -> Choice("Delete  " + label(store, file)) { store.delete(file) } }
+
+    private fun showDelete(project: Project, store: RecordingStore) {
+        JBPopupFactory.getInstance().createPopupChooserBuilder(deleteChoices(store))
+            .setTitle("Delete a Recording")
+            .setNamerForFiltering { it.label }
+            .setItemChosenCallback { it.run() }
+            .createPopup()
+            .showCenteredInCurrentWindow(project)
+    }
+
+    /** Newest first, each labelled from its header: a list of thirty reads thirty headers, not thirty runs. */
     private fun label(store: RecordingStore, file: Path): String {
         val name = file.fileName.toString().substringBefore('.')
         val time = runCatching { LocalDateTime.parse(name.take(15), STAMP).format(SHOWN) }.getOrDefault(name)
-        val recording = runCatching { store.load(file) }.getOrNull() ?: return "$time  (unreadable)"
-        val calls = CallTree.build(recording).values.sumOf { roots -> roots.sumOf(::count) }
-        val entry = recording.hits.firstOrNull()?.site?.let { it.className.substringAfterLast('.') + "." + it.methodName } ?: "empty"
-        return "$time  $entry  ·  ${"%,d".format(recording.hits.size)} lines, ${"%,d".format(calls)} calls"
+        val header = store.header(file) ?: return "$time  (unreadable)"
+        val entry = header.entry?.let { it.first.substringAfterLast('.') + "." + it.second } ?: "empty"
+        return "$time  $entry  ·  ${"%,d".format(header.hits)} lines, ${"%,d".format(header.calls)} calls"
     }
-
-    private fun count(call: Invocation): Int = 1 + call.children.sumOf(::count)
 
     private fun show(project: Project, choices: List<Choice>) {
         if (choices.isEmpty()) {
@@ -70,6 +79,7 @@ class ReplayPickAction : AnAction(), DumbAware {
     }
 
     private companion object {
+        /** Recordings a popup lists: the newest. */
         const val MAX = 30
         val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
         val SHOWN: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM HH:mm:ss")

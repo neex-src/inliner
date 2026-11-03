@@ -56,7 +56,9 @@ class RecorderService(private val project: Project) : Disposable {
         val selected = DebuggerManagerEx.getInstanceEx(project).context.frameProxy
         val process = currentProcess() ?: return notify("No Java debug session to record.", NotificationType.WARNING)
         if (isRecording) return
-        ReadAction.nonBlocking<List<String>> { ProjectPackages.of(project) }
+        // a test run records the tests' own code too
+        val testRun = process.xdebugProcess?.session?.runProfile is com.intellij.execution.JavaTestConfigurationBase
+        ReadAction.nonBlocking<List<String>> { ProjectPackages.of(project, includeTests = testRun) }
             .inSmartMode(project)
             .expireWith(this)
             .finishOnUiThread(ModalityState.nonModal()) { begin(process, it, selected, untilReturn, whatIf) }
@@ -116,8 +118,8 @@ class RecorderService(private val project: Project) : Disposable {
             }
             // A what-if: replay it against the original from the same line, if there is one.
             val original = store.list().asSequence().filter { it != file }.take(ORIGINALS_LOOKED_AT)
-                .mapNotNull { runCatching { store.load(it) }.getOrNull() }
-                .firstOrNull { it.change == null && it.anchor != null && it.anchor == recording.anchor }
+                .firstOrNull { candidate -> store.header(candidate)?.let { it.change == null && it.anchor != null && it.anchor == recording.anchor } == true }
+                ?.let { runCatching { store.load(it) }.getOrNull() }
             val what = "What if ${change.name} = ${change.after} (was ${change.before})"
             if (original == null) {
                 notify("$what: ${summary(recording, reason)}\nNo original from this line to compare with: Alt+Shift+U at this breakpoint records one.", NotificationType.INFORMATION)

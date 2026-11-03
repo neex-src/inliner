@@ -57,6 +57,10 @@ class InlinerConfigurable : BoundConfigurable("Inline Reading Mode") {
                 row("Lines kept per recording:") {
                     intTextField(1..10_000_000).bindIntText(recorder::total)
                 }
+                row("Recordings kept per project:") {
+                    intTextField(1..10_000).bindIntText(recorder::keep)
+                        .comment("The newest ones; older recordings are deleted when a new one is saved.")
+                }
             }
         }
     }

@@ -22,6 +22,9 @@ class RecorderSettings : SimplePersistentStateComponent<RecorderSettings.Options
         var exclude by string("")
         var perLine by property(Budget().perLocation)
         var total by property(Budget().total)
+
+        /** Recordings kept per project: the newest. */
+        var keep by property(RecordingStore.DEFAULT_KEEP)
     }
 
     /**

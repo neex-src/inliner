@@ -1,21 +1,55 @@
 package com.neex.inliner.recorder
 
+import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 
+/** What a recording is, in one line's worth: enough for a list and for a what-if's search, without its hits. */
+data class RecordingHeader(
+    val hits: Int,
+    val calls: Int,
+    val truncated: Boolean,
+    /** The first hit's class and method: where the recording starts. */
+    val entry: Pair<String, String>?,
+    val anchor: Site?,
+    val change: Change?,
+    val threads: List<String>,
+)
+
 /**
  * A recording on disk: it has to outlive the debug session it came from. Binary, with every
  * string (class names, variable names, the same rendered value over and over) stored once.
+ *
+ * Version 3 starts with a [RecordingHeader] right after the version, with its own length: a list of
+ * recordings reads those few hundred bytes of each file with [readHeader] and stops, where the hits
+ * can be tens of megabytes. Versions 1 and 2 have no header ([readHeader] says so with null) and are
+ * read whole as before.
  */
 object RecordingFile {
 
     private const val MAGIC = 0x494e4c52 // "INLR"
-    private const val VERSION = 2
+    private const val VERSION = 3
 
-    fun write(recording: Recording, out: OutputStream) {
+    /** The header [recording] would get: what [readHeader] returns for its file, and what an old file's is derived as. */
+    fun headerOf(recording: Recording): RecordingHeader = RecordingHeader(
+        hits = recording.hits.size,
+        calls = CallTree.build(recording).values.sumOf { roots -> roots.sumOf(::count) },
+        truncated = recording.truncated,
+        entry = recording.hits.firstOrNull()?.site?.let { it.className to it.methodName },
+        anchor = recording.anchor,
+        change = recording.change,
+        threads = recording.threads.values.toList(),
+    )
+
+    private fun count(call: Invocation): Int = 1 + call.children.sumOf(::count)
+
+    fun write(recording: Recording, out: OutputStream) = write(recording, out, VERSION)
+
+    /** [version] 2: without the header, as older plugins wrote it (the compatibility test needs one). */
+    internal fun write(recording: Recording, out: OutputStream, version: Int) {
         val strings = LinkedHashMap<String, Int>()
         fun id(s: String) = strings.getOrPut(s) { strings.size }
         val sites = LinkedHashMap<Site, Int>()
@@ -34,7 +68,8 @@ object RecordingFile {
 
         val d = DataOutputStream(out.buffered())
         d.writeInt(MAGIC)
-        d.writeInt(VERSION)
+        d.writeInt(version)
+        if (version >= 3) writeHeader(headerOf(recording), d)
         d.writeInt(strings.size)
         strings.keys.forEach(d::writeUTF)
         d.writeInt(sites.size)
@@ -62,11 +97,56 @@ object RecordingFile {
         d.flush()
     }
 
+    private fun writeHeader(h: RecordingHeader, out: DataOutputStream) {
+        val bytes = ByteArrayOutputStream()
+        val d = DataOutputStream(bytes)
+        d.writeInt(h.hits)
+        d.writeInt(h.calls)
+        d.writeBoolean(h.truncated)
+        d.writeBoolean(h.entry != null)
+        h.entry?.let { d.writeUTF(it.first); d.writeUTF(it.second) }
+        d.writeBoolean(h.anchor != null)
+        h.anchor?.let {
+            d.writeUTF(it.className); d.writeUTF(it.methodName); d.writeUTF(it.signature); d.writeInt(it.line)
+            d.writeBoolean(it.sourcePath != null)
+            it.sourcePath?.let(d::writeUTF)
+        }
+        d.writeBoolean(h.change != null)
+        h.change?.let { d.writeUTF(it.name); d.writeUTF(it.before); d.writeUTF(it.after) }
+        d.writeInt(h.threads.size)
+        h.threads.forEach(d::writeUTF)
+        d.flush()
+        out.writeInt(bytes.size())
+        bytes.writeTo(out)
+    }
+
+    /**
+     * The header of a version 3 file, reading no further than it; null for an older file, which has
+     * none (its header is [headerOf] its recording).
+     */
+    fun readHeader(input: InputStream): RecordingHeader? {
+        val d = DataInputStream(input)
+        if (d.readInt() != MAGIC) throw IOException("not a recording")
+        val version = d.readInt()
+        if (version !in 1..VERSION) throw IOException("recording format $version, this plugin reads 1 to $VERSION")
+        if (version < 3) return null
+        d.readInt() // the header's length: only readers that skip it need it
+        val hits = d.readInt()
+        val calls = d.readInt()
+        val truncated = d.readBoolean()
+        val entry = if (d.readBoolean()) d.readUTF() to d.readUTF() else null
+        val anchor = if (d.readBoolean()) Site(d.readUTF(), d.readUTF(), d.readUTF(), d.readInt(), if (d.readBoolean()) d.readUTF() else null) else null
+        val change = if (d.readBoolean()) Change(d.readUTF(), d.readUTF(), d.readUTF()) else null
+        val threads = List(d.readInt()) { d.readUTF() }
+        return RecordingHeader(hits, calls, truncated, entry, anchor, change, threads)
+    }
+
     fun read(input: InputStream): Recording {
         val d = DataInputStream(input.buffered())
         if (d.readInt() != MAGIC) throw IOException("not a recording")
         val version = d.readInt()
         if (version !in 1..VERSION) throw IOException("recording format $version, this plugin reads 1 to $VERSION")
+        if (version >= 3) d.skipNBytes(d.readInt().toLong())
         val strings = List(d.readInt()) { d.readUTF() }
         val sites = List(d.readInt()) {
             val c = strings[d.readInt()]
