@@ -133,19 +133,20 @@ class Replay(val recording: Recording) {
     fun lastChange(name: String): Hit? {
         val hits = callOf(current).hits
         val at = hits.indexOfFirst { it.seq == current.seq }
-        return (at - 1 downTo 0).map { hits[it] }.firstOrNull { changes(it, hits, name) }
+        return (at - 1 downTo 0).firstOrNull { changes(hits, it, name) }?.let { hits[it] }
     }
 
     /** The next line of the current call that changes [name], after the cursor's own. */
     fun nextChange(name: String): Hit? {
         val hits = callOf(current).hits
         val at = hits.indexOfFirst { it.seq == current.seq }
-        return (at + 1 until hits.size).map { hits[it] }.firstOrNull { changes(it, hits, name) }
+        return (at + 1 until hits.size).firstOrNull { changes(hits, it, name) }?.let { hits[it] }
     }
 
-    private fun changes(hit: Hit, hits: List<Hit>, name: String): Boolean {
+    private fun changes(hits: List<Hit>, i: Int, name: String): Boolean {
+        val hit = hits[i]
         if (!hit.startsLine) return false
-        val next = hits.getOrNull(hits.indexOf(hit) + 1) ?: return false
+        val next = hits.getOrNull(i + 1) ?: return false
         return valueOf(next, name) != valueOf(hit, name) && valueOf(next, name) != null
     }
 
