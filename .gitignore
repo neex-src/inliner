@@ -8,3 +8,4 @@ build/
 .scratch/
 .ijdev/
 .clj-kondo/
+research/**/*.log

@@ -25,12 +25,34 @@
         <p>A tracked variable passed as an argument is tracked as the parameter inside the
         inlined frame, so one value can be followed through the whole call chain.</p>
 
+        <p>Then the recorder, the replay and what-if: record a run, read it back, ask what would have happened.</p>
+        <ul>
+          <li><b>Alt+Shift+D</b> — record the debug session: the values and the path of every
+          line of your own code, within a budget; saved when it ends. <b>Alt+Shift+U</b> —
+          paused at a breakpoint: record from here until this method returns.</li>
+          <li><b>Alt+Shift+P</b> — replay a recording in the editor. It looks like a paused
+          debugger: the execution line, what each line changed at its end, the lines this call
+          never ran greyed, inlined frames showing the call under them. Step with the
+          debugger's own keys (F8, F7, Shift+F8) forwards and back, jump to the next run of a
+          line, ask where a value came from (<b>Alt+Shift+W</b>), read the calls as a tree
+          (<b>Alt+Shift+L</b>).</li>
+          <li><b>Alt+Shift+E</b> — what if: paused at a breakpoint, set the variable at the
+          caret to another value, let the rest of the method run recorded, and replay it beside
+          the original — the lines only one of the runs ran are marked, and <b>Alt+Shift+X</b>
+          jumps to where they part.</li>
+        </ul>
+
+        <p>A gutter icon marks each line with a call that can be expanded (Settings | Tools |
+        Inline Reading Mode).</p>
+
         <p>Java only. Made by <a href="https://neex.dev">NEEX</a>.</p>
     ]]></description>
 
     <change-notes><![CDATA[
         <p>0.1.0 — first release: inline expansion (recursive, implementation picker, library
-        sources), focus tracking, value flow, fold to focus, tracking into inlined frames.</p>
+        sources), focus tracking, value flow, fold to focus, tracking into inlined frames,
+        recording a debug run and replaying it in the editor, what-if runs beside the original,
+        a gutter icon on expandable calls.</p>
     ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
