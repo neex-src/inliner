@@ -116,6 +116,16 @@ class Replay(val recording: Recording) {
     fun linesOf(call: Invocation): Set<Int> = call.hits.filter { it.startsLine }.mapTo(HashSet()) { it.site.line }
 
     /**
+     * Lines of [call]'s method that used up their budget: past it they were no longer watched, so
+     * whether this call ran them is not known — which is not the same as "it didn't".
+     */
+    fun unknownLines(call: Invocation): Set<Int> =
+        recording.exhausted.filter { it.method == call.method }.mapTo(HashSet()) { it.line } - linesOf(call)
+
+    /** The lines of [call] it ran or may have run: what is left out of this is what it never did. */
+    fun linesRanOrUnknown(call: Invocation): Set<Int> = linesOf(call) + unknownLines(call)
+
+    /**
      * The line that gave [name] the value it has at the cursor: the last line of the current call
      * that changed it — null when the call never did (it came in as an argument, or before the
      * recording started).

@@ -5,17 +5,16 @@ import com.intellij.debugger.engine.DebugProcessEvents
 import com.intellij.debugger.engine.DebugProcessImpl
 import com.intellij.debugger.engine.DebugProcessListener
 import com.intellij.debugger.impl.PrioritizedTask
+import com.intellij.debugger.jdi.StackFrameProxyImpl
 import com.intellij.debugger.requests.ClassPrepareRequestor
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.EmptyRunnable
+import com.neex.inliner.recorder.ArmPoint
 import com.neex.inliner.recorder.Change
-import com.neex.inliner.recorder.Hit
-import com.neex.inliner.recorder.MethodKey
 import com.neex.inliner.recorder.Recorder
 import com.neex.inliner.recorder.Recording
-import com.neex.inliner.recorder.Site
 import com.neex.inliner.recorder.Verdict
 import com.neex.inliner.recorder.WhatIf
 import com.neex.inliner.recorder.WhatIfException
@@ -52,8 +51,6 @@ class LiveRecording(
     private val recorder = newRecorder(::pausedByUser)
     private val requests = ArrayList<BreakpointRequest>()
     private val armed = HashSet<ReferenceType>()
-    private var until: Until? = null
-    private var anchor: Site? = null
     private var change: Change? = null
 
     @Volatile
@@ -62,41 +59,39 @@ class LiveRecording(
 
     val hits: Int get() = recorder.hitCount
 
-    /** Ends when [method], paused at [depth] in [thread], returns — or anything shallower runs there. */
-    private class Until(val thread: Long, val depth: Int, val method: MethodKey?)
-
     private val prepared = ClassPrepareRequestor { _, type -> arm(type) }
 
     private val handler = Consumer<Event> { event ->
         if (ended || event !is BreakpointEvent) return@Consumer
-        val before = recorder.hitCount
         when (recorder.onHit(event.thread(), event.location())) {
             Verdict.KEEP -> Unit
             Verdict.LOCATION_DONE -> event.request().disable()
-            Verdict.ALL_DONE -> return@Consumer end(EndReason.BUDGET)
+            Verdict.ALL_DONE -> end(EndReason.BUDGET)
+            Verdict.RETURNED -> end(EndReason.RETURNED)
         }
-        if (recorder.hitCount > before && until?.let { returned(it, recorder.lastHit!!) } == true) end(EndReason.RETURNED)
     }
-
-    private fun returned(until: Until, hit: Hit): Boolean =
-        hit.thread == until.thread &&
-            (hit.depth < until.depth || hit.depth == until.depth && hit.returns && hit.site.method == until.method)
 
     /** A value to set in the paused frame before recording on: a what-if. */
     class WhatIfRequest(val name: String, val text: String)
 
     /**
      * Arms what is loaded now and what loads later, then calls [armed] (on the manager thread).
-     * [untilReturn]: the user is paused; end when that frame returns, the paused line being the
-     * recording's anchor. [whatIf]: first set that value in the paused frame; if it can't be
-     * done, nothing is recorded and [refused] says why.
+     * [selected]: the frame the user has selected in the debugger's Frames view (not always the
+     * top one). [untilReturn]: the user is paused; end when *that* frame returns, its line being
+     * the recording's anchor. [whatIf]: first set that value in that frame; if it can't be done,
+     * nothing is recorded and [refused] says why.
      */
-    fun start(untilReturn: Boolean, whatIf: WhatIfRequest? = null, refused: (String) -> Unit = {}, armed: () -> Unit) = onManagerThread {
+    fun start(
+        selected: StackFrameProxyImpl?,
+        untilReturn: Boolean,
+        whatIf: WhatIfRequest? = null,
+        refused: (String) -> Unit = {},
+        armed: () -> Unit,
+    ) = onManagerThread {
         if (whatIf != null) {
-            val frame = process.suspendManager.pausedContext?.frameProxy
             try {
-                if (frame == null) throw WhatIfException("Not paused in a frame")
-                change = WhatIf.apply(frame.stackFrame, whatIf.name, whatIf.text)
+                if (selected == null) throw WhatIfException("Not paused in a frame")
+                change = WhatIf.apply(selected.stackFrame, whatIf.name, whatIf.text)
             } catch (e: WhatIfException) {
                 ended = true
                 refused(e.message ?: "Can't set ${whatIf.name}")
@@ -104,43 +99,36 @@ class LiveRecording(
                 return@onManagerThread
             }
         }
-        if (untilReturn) {
-            until = pausedFrame()
-            anchor = process.suspendManager.pausedContext?.frameProxy?.location()?.let(recorder::siteAt)
-        }
         process.addDebugProcessListener(object : DebugProcessListener {
             override fun processDetached(process: DebugProcess, closedByUser: Boolean) = end(EndReason.DETACHED)
         }, this)
         process.virtualMachineProxy.allClasses().forEach(::arm)
         packages.forEach { process.requestsManager.callbackOnPrepareClasses(prepared, "$it.*") }
-        // The line the user is paused on ran its event already: it is the recording's first hit.
-        process.suspendManager.pausedContext?.let { context ->
-            val thread = context.thread?.threadReference ?: return@let
-            context.frameProxy?.location()?.let { recorder.onHit(thread, it, paused = true) }
+        // The line the user is paused on ran its event already: it is the recording's first hit —
+        // in the selected frame when the recording ends with that frame's return, else the top one.
+        val frame = if (untilReturn) selected else process.suspendManager.pausedContext?.frameProxy
+        var seed = Verdict.KEEP
+        if (frame != null) {
+            val thread = frame.threadProxy().threadReference
+            if (untilReturn) recorder.endWhenReturns(thread, frame.frameIndex).forEach(::request)
+            seed = recorder.onHit(thread, frame.location(), paused = true, frameIndex = frame.frameIndex)
         }
         armed()
+        if (seed == Verdict.RETURNED) end(EndReason.RETURNED)
     }
 
     fun stop() = onManagerThread { end(EndReason.STOPPED) }
 
     private fun arm(type: ReferenceType) {
         if (ended || !type.isPrepared || !armed.add(type)) return
-        val vm = process.virtualMachineProxy.eventRequestManager()
-        for (point in recorder.arm(type)) {
-            val request = vm.createBreakpointRequest(point.location)
-            request.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD)
-            DebugProcessEvents.enableRequestWithHandler(request, handler)
-            requests += request
-        }
+        recorder.arm(type).forEach(::request)
     }
 
-    private fun pausedFrame(): Until? {
-        val context = process.suspendManager.pausedContext ?: return null
-        val thread = context.thread ?: return null
-        val frame = context.frameProxy ?: return null
-        val method = frame.location().method()
-        val key = MethodKey(method.declaringType().name(), method.name(), method.signature())
-        return Until(thread.threadReference.uniqueID(), thread.frameCount(), key)
+    private fun request(point: ArmPoint) {
+        val request = process.virtualMachineProxy.eventRequestManager().createBreakpointRequest(point.location)
+        request.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD)
+        DebugProcessEvents.enableRequestWithHandler(request, handler)
+        requests += request
     }
 
     private fun pausedByUser(thread: ThreadReference): Boolean =
@@ -156,7 +144,7 @@ class LiveRecording(
             // the debuggee is gone, and its requests with it
         }
         requests.clear()
-        onEnd(recorder.recording(anchor, change), reason)
+        onEnd(recorder.recording(change), reason)
         Disposer.dispose(this)
         // The manager thread holds on to the last command it ran until it runs another: if that is
         // ours, it keeps this plugin's classes alive after an unload. Leave it a command of its own.

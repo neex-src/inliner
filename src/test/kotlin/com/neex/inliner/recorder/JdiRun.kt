@@ -1,6 +1,7 @@
 package com.neex.inliner.recorder
 
 import com.sun.jdi.Bootstrap
+import com.sun.jdi.Location
 import com.sun.jdi.ThreadReference
 import com.sun.jdi.event.BreakpointEvent
 import com.sun.jdi.event.ClassPrepareEvent
@@ -15,10 +16,17 @@ import java.io.File
  */
 object JdiRun {
 
-    class Result(val recording: Recording, val output: String, val change: Change? = null, val whatIfError: String? = null)
+    /** [end]: what ended the recording early — [Verdict.RETURNED] or [Verdict.ALL_DONE]; null: it ran to the end of the program. */
+    class Result(val recording: Recording, val output: String, val change: Change? = null, val whatIfError: String? = null, val end: Verdict? = null)
 
     /** Set [name] to [text] the first time the run reaches [line] of [method], before that line runs. */
     class WhatIfAt(val method: String, val line: Int, val name: String, val text: String)
+
+    /**
+     * The user pausing at [line] of [method] the first time the run gets there, in the frame [frame] of the stack (0: the top),
+     * and recording until that frame returns.
+     */
+    class AnchorAt(val method: String, val line: Int, val frame: Int = 0)
 
     fun record(
         main: Class<*>,
@@ -27,6 +35,7 @@ object JdiRun {
         budget: Budget = Budget(),
         busy: (ThreadReference) -> Boolean = { false },
         whatIf: WhatIfAt? = null,
+        anchor: AnchorAt? = null,
     ): Result {
         var change: Change? = null
         var whatIfError: String? = null
@@ -47,16 +56,27 @@ object JdiRun {
             setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD)
             enable()
         }
+        fun breakpoint(location: Location) = requests.createBreakpointRequest(location).apply {
+            setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD)
+            enable()
+        }
+        var anchored = false
+        var end: Verdict? = null
         val deadline = System.currentTimeMillis() + 60_000
         events@ while (true) {
             check(System.currentTimeMillis() < deadline) { "debuggee still running after 60 s\n$output" }
             val set = vm.eventQueue().remove(1_000) ?: continue
             for (event in set) {
+                if (end != null && event is BreakpointEvent) continue
                 when (event) {
-                    is ClassPrepareEvent -> recorder.arm(event.referenceType()).forEach {
-                        requests.createBreakpointRequest(it.location).apply {
-                            setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD)
-                            enable()
+                    is ClassPrepareEvent -> {
+                        val armed = recorder.arm(event.referenceType()).onEach { breakpoint(it.location) }.map { it.location }.toSet()
+                        // the user's own breakpoint, where the recorder has none: a method outside the scope
+                        if (anchor != null) {
+                            for (m in event.referenceType().methodsByName(anchor.method)) {
+                                val first = m.locationsOfLine(anchor.line).minByOrNull { it.codeIndex() }
+                                if (first != null && first !in armed) breakpoint(first)
+                            }
                         }
                     }
                     is BreakpointEvent -> {
@@ -69,9 +89,20 @@ object JdiRun {
                                 whatIfError = e.message
                             }
                         }
-                        when (recorder.onHit(event.thread(), at)) {
+                        val thread = event.thread()
+                        val verdict = if (anchor != null && !anchored && at.method().name() == anchor.method && at.lineNumber() == anchor.line) {
+                            anchored = true
+                            recorder.endWhenReturns(thread, anchor.frame).forEach { breakpoint(it.location) }
+                            recorder.onHit(thread, thread.frame(anchor.frame).location(), paused = true, frameIndex = anchor.frame)
+                        } else {
+                            recorder.onHit(thread, at)
+                        }
+                        when (verdict) {
                             Verdict.LOCATION_DONE -> event.request().disable()
-                            Verdict.ALL_DONE -> requests.deleteAllBreakpoints()
+                            Verdict.ALL_DONE, Verdict.RETURNED -> {
+                                end = verdict
+                                requests.deleteAllBreakpoints()
+                            }
                             Verdict.KEEP -> Unit
                         }
                     }
@@ -81,7 +112,7 @@ object JdiRun {
             set.resume()
         }
         vm.process().waitFor()
-        return Result(recorder.recording(change = change), output.toString(), change, whatIfError)
+        return Result(recorder.recording(change = change), output.toString(), change, whatIfError, end)
     }
 
     /** The directory [main] was compiled into (the test class loader reports no code source). */

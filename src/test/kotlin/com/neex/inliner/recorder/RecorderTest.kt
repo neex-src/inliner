@@ -10,6 +10,7 @@ import recfix.Flags
 import recfix.Hot
 import recfix.Quotes
 import recfix.Values
+import recfix.ext.Host
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
@@ -95,11 +96,85 @@ class RecorderTest {
     }
 
     @Test
+    fun returnPointsOutliveTheBudgetSoCallsStayApart() {
+        val run = JdiRun.record(Hot::class.java, "twice", budget = Budget(perLocation = 5))
+        assertEquals("380\n", run.output)
+        val recording = run.recording
+        val body = lineOf("Hot.java", "int y = k * 2")
+        val ret = lineOf("Hot.java", "return y;")
+        assertEquals("the line is switched off after its budget", 5, recording.hits.count { it.site.line == body })
+        assertTrue(recording.exhausted.any { it.line == body })
+        val returns = recording.hits.filter { it.site.line == ret && it.returns }
+        assertEquals("the return is recorded for every call", 20, returns.size)
+        assertTrue("past its budget it carries no values", returns.drop(5).all { it.values.isEmpty() })
+        assertTrue("within it, all of them", returns.take(5).all { it.values.isNotEmpty() })
+
+        val main = recording.threads.entries.single { it.value == "main" }.key
+        val calls = CallTree.build(recording).getValue(main).single().children.filter { it.method.methodName == "twice" }
+        assertEquals("twice(k) in the loop is 20 calls, not 5 and a long one", 20, calls.size)
+        assertTrue(calls.all { it.returned })
+    }
+
+    @Test
     fun totalBudgetEndsTheRecording() {
         val run = JdiRun.record(Hot::class.java, budget = Budget(total = 30))
         assertEquals("the program still runs to the end", "499500\n", run.output)
         assertEquals(30, run.recording.hits.size)
         assertTrue(run.recording.truncated)
+        assertEquals(Verdict.ALL_DONE, run.end)
+    }
+
+    @Test
+    fun untilReturnEndsWhenTheAnchorMethodReturns() {
+        val line = lineOf("Quotes.java", "boolean loyal = ")
+        val run = JdiRun.record(Quotes::class.java, anchor = JdiRun.AnchorAt("discount", line))
+        assertEquals(Verdict.RETURNED, run.end)
+        val last = run.recording.hits.last()
+        assertTrue(last.returns)
+        assertEquals("discount", last.site.methodName)
+        val full = JdiRun.record(Quotes::class.java).recording
+        assertTrue("main returns after discount: not in this recording", full.hits.any { it.site.methodName == "main" && it.returns } && run.recording.hits.none { it.site.methodName == "main" && it.returns })
+        assertTrue(run.recording.hits.size < full.hits.size)
+        assertEquals(line, run.recording.anchor!!.line)
+        assertEquals("the program itself ran on", "EUR 546\n", run.output)
+    }
+
+    @Test
+    fun untilReturnEndsEvenWhenTheAnchorMethodIsOutsideTheScope() {
+        val scope = RecordScope(listOf("recfix"), exclude = listOf("recfix.ext"))
+        val line = lineOf("ext/Host.java", "int a = n * 2")
+        val run = JdiRun.record(Host::class.java, scope = scope, anchor = JdiRun.AnchorAt("middle", line))
+        assertEquals("25\n", run.output)
+        val methods = run.recording.hits.map { it.site.methodName }.toSet()
+        assertEquals("the callee in scope is recorded, nothing else", setOf("during"), methods)
+        assertEquals("ended when middle returned, before after() ran", Verdict.RETURNED, run.end)
+        val anchor = run.recording.anchor!!
+        assertEquals("recfix.ext.Host" to "middle", anchor.className to anchor.methodName)
+        assertEquals(line, anchor.line)
+    }
+
+    @Test
+    fun withoutAnAnchorTheOutsideCallerNeverEndsIt() {
+        // the contrast: the same run, recording from the start, has no end of its own
+        val scope = RecordScope(listOf("recfix"), exclude = listOf("recfix.ext"))
+        val run = JdiRun.record(Host::class.java, scope = scope)
+        assertEquals(null, run.end)
+        assertEquals(setOf("during", "after"), run.recording.hits.map { it.site.methodName }.toSet())
+    }
+
+    @Test
+    fun untilReturnOfASelectedCallerFrame() {
+        // paused in fail(2), the user selects its caller rescue(): the recording ends when rescue returns
+        val line = lineOf("Calls.java", "if (depth == 0)")
+        val run = JdiRun.record(Calls::class.java, anchor = JdiRun.AnchorAt("fail", line, frame = 1))
+        assertEquals(Verdict.RETURNED, run.end)
+        val last = run.recording.hits.last()
+        assertEquals("rescue", last.site.methodName)
+        assertTrue(last.returns)
+        assertEquals("-1", last.value("got"))
+        assertEquals("the anchor is the caller's line", lineOf("Calls.java", "fail(2);"), run.recording.anchor!!.line)
+        assertEquals("rescue", run.recording.anchor!!.methodName)
+        assertTrue("kind() ran after rescue returned: not recorded", run.recording.hits.none { it.site.methodName == "kind" })
     }
 
     @Test
