@@ -1,5 +1,6 @@
 package com.neex.inliner.recorder
 
+import com.sun.jdi.AbsentInformationException
 import com.sun.jdi.Method
 
 /** Just enough of the JVM instruction set to find returns and recognise one-instruction methods. */
@@ -44,6 +45,13 @@ internal object Bytecode {
 
     /** `return this.f`, `this.f = v`, and their static forms: nothing to watch happen. */
     fun isAccessor(method: Method): Boolean {
+        // an accessor is one or two lines long: only those are worth a bytecodes() round trip
+        val lines = try {
+            method.allLineLocations().size
+        } catch (_: AbsentInformationException) {
+            return false
+        }
+        if (lines > 2) return false
         val c = code(method)?.map { it.toInt() and 0xff } ?: return false
         return when (c.size) {
             5 -> c[0] == ALOAD_0 && c[1] == GETFIELD && isReturn(c[4]) && c[4] != RETURN ||
