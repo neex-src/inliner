@@ -172,6 +172,7 @@ class ReplayService(private val project: Project) : Disposable {
 
     fun close() {
         comparison = null
+        foldNotRun = false // the toggle belongs to the replay that was open
         view?.let(Disposer::dispose)
         view = null
         replay = null

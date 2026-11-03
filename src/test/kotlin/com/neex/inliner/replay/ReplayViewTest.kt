@@ -54,7 +54,7 @@ class ReplayViewTest : LightJavaCodeInsightFixtureTestCase() {
 
     override fun tearDown() {
         try {
-            ReplayService.of(project).let { it.close(); if (it.foldNotRun) it.toggleFold() }
+            ReplayService.of(project).close()
         } finally {
             super.tearDown()
         }
@@ -124,5 +124,27 @@ class ReplayViewTest : LightJavaCodeInsightFixtureTestCase() {
         service.close()
         assertTrue(editor.inlayModel.getAfterLineEndElementsInRange(0, editor.document.textLength).isEmpty())
         assertFalse(service.isOpen)
+    }
+
+    fun testAClosedReplayLeavesNothingFoldedBehind() {
+        val (service, replay) = open()
+        replay.moveTo(replay.recording.hits[6])
+        service.move(Step.INTO, null)
+        service.toggleFold()
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor!!
+        assertEquals("the call's unrun lines are folded", 1, editor.foldingModel.allFoldRegions.size)
+
+        service.close()
+        assertTrue("its folds go with it", editor.foldingModel.allFoldRegions.isEmpty())
+        assertFalse("and so does its fold toggle: the next replay starts unfolded", service.foldNotRun)
+
+        val second = Replay(recording())
+        val sources = com.intellij.openapi.application.ReadAction.compute<Map<String, com.intellij.openapi.vfs.VirtualFile>, Throwable> { ReplayService.sourcesOf(project, second) }
+        val again = service
+        again.start(second, "again", sources)
+        second.moveTo(second.recording.hits[6])
+        again.move(Step.INTO, null)
+        assertTrue("a new replay shows the lines it didn't run, greyed, not folded", again.currentView!!.folds().isEmpty())
+        assertTrue(editor.foldingModel.allFoldRegions.isEmpty())
     }
 }
