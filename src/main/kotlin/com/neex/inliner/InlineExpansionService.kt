@@ -7,6 +7,7 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
+import com.intellij.util.SingleAlarm
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.IndexNotReadyException
@@ -275,15 +276,34 @@ object InlineExpansionService {
                 }
             }
         }, node)
+        // methodRange is greedy to the right, so a method typed right after the callee's `}` ends up
+        // inside it: once the edit is committed, the frame is clipped to the method PSI says again.
+        val reclip = SingleAlarm(
+            { PsiDocumentManager.getInstance(node.parentEditor.project!!).performLaterWhenAllCommitted { reclip(node) } },
+            200, node,
+        )
         // Callee method deleted / emptied by an edit in its own file → collapse.
         node.fragmentEditor.document.addDocumentListener(object : DocumentListener {
             override fun documentChanged(event: DocumentEvent) {
                 if (node.disposed) return
+                reclip.cancelAndRequest()
                 if (!node.methodRange.isValid || node.methodRange.startOffset == node.methodRange.endOffset) {
                     ApplicationManager.getApplication().invokeLater { if (!node.disposed) collapse(node, focus = false) }
                 }
             }
         }, node)
+    }
+
+    private fun reclip(node: ExpansionNode) {
+        if (node.disposed || node.fragmentEditor.isDisposed) return
+        val range = node.methodPtr.element?.textRange ?: return
+        val old = node.methodRange
+        if (old.isValid && old.startOffset == range.startOffset && old.endOffset == range.endOffset) return
+        node.methodRange = node.fragmentEditor.document.createRangeMarker(range).apply { isGreedyToRight = true }
+        old.dispose()
+        FragmentEditorFactory.clipToRange(node.fragmentEditor, range)
+        node.hostState.hostEditor.getUserData(FocusKeys.FOCUS_SET)?.let(FocusService::refreshAll) // clipping cleared the folds
+        relayoutUp(node)
     }
 
     /**

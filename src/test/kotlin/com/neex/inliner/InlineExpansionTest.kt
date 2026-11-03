@@ -195,4 +195,22 @@ class InlineExpansionTest : LightJavaCodeInsightFixtureTestCase() {
         assertTrue("the edit should have collapsed the frame", node.disposed)
         assertTrue("an edit must not take the keyboard", focusAsked.isEmpty())
     }
+
+    fun testAMethodTypedRightAfterTheCalleeStaysOutOfTheFrame() {
+        myFixture.configureByText("A.java", sample)
+        InlineExpansionService.toggle(myFixture.editor, project)
+        val node = myFixture.editor.getUserData(Keys.HOST_STATE)!!.roots[0]
+        val at = node.methodRange.endOffset
+        WriteCommandAction.runWriteCommandAction(project) {
+            myFixture.editor.document.insertString(at, " int extra() { return 1; }")
+        }
+        PlatformTestUtil.waitWithEventsDispatching(
+            "the frame is the callee again, not the callee and what was typed after it",
+            { node.methodRange.endOffset == node.methodPtr.element!!.textRange.endOffset },
+            5,
+        )
+        assertEquals(at, node.methodRange.endOffset)
+        val hidden = node.fragmentEditor.foldingModel.getCollapsedRegionAtOffset(at + 5)
+        assertNotNull("the typed method is clipped away", hidden)
+    }
 }

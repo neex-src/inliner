@@ -51,7 +51,7 @@ class ExpansionNode(
     val callRange: RangeMarker,
     val methodPtr: SmartPsiElementPointer<PsiMethod>,
     /** The method's range in the callee file's document. */
-    val methodRange: RangeMarker,
+    var methodRange: RangeMarker,
     /**
      * Set when the fragment renders a detached document (e.g. a decompiled mirror that has
      * no real Document): PSI for caret/resolve inside the frame comes from here, since
