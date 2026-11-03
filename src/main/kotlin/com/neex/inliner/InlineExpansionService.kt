@@ -219,6 +219,7 @@ object InlineExpansionService {
         Disposer.register(frame ?: state, node)
 
         installInvalidationListeners(node, inlay)
+        FocusService.watchFrame(node)
         FrameCaret.install(node)
         relayoutUp(node)
 
