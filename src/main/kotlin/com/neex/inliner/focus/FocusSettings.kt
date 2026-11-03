@@ -15,10 +15,12 @@ class FocusSettings : SimplePersistentStateComponent<FocusSettings.Options>(Opti
     class Options : BaseState() {
         var foldRule by enum(FoldRule.TOUCHES)
         var markWrites by property(true)
+        var gutterIcons by property(true)
     }
 
     val foldRule: FoldRule get() = state.foldRule
     val markWrites: Boolean get() = state.markWrites
+    val gutterIcons: Boolean get() = state.gutterIcons
 
     companion object {
         fun getInstance(): FocusSettings = service()
