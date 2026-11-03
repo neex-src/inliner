@@ -28,7 +28,7 @@ class GutterIconProvider : LineMarkerProviderDescriptor() {
 
     override fun getName(): String = "Inline Reading Mode: expand call"
 
-    override fun getIcon(): Icon = AllIcons.General.ChevronDown
+    override fun getIcon(): Icon = AllIcons.General.ExpandComponent
 
     override fun getLineMarkerInfo(element: PsiElement): LineMarkerInfo<*>? = null
 
@@ -53,7 +53,7 @@ class GutterIconProvider : LineMarkerProviderDescriptor() {
             } ?: continue
             marked += line
             result += LineMarkerInfo(
-                leaf, leaf.textRange, AllIcons.General.ChevronDown, { "Expand ${resolved.name}() inline" },
+                leaf, leaf.textRange, AllIcons.General.ExpandComponent, { "Expand ${resolved.name}() inline" },
                 GutterIconNavigationHandler<PsiElement> { event, element ->
                     val target = callOf(element) ?: return@GutterIconNavigationHandler
                     val project = element.project
