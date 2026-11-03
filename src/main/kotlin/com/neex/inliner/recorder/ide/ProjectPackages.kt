@@ -3,6 +3,7 @@ package com.neex.inliner.recorder.ide
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ModuleRootManager
+import com.intellij.openapi.roots.PackageIndex
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileVisitor
@@ -30,7 +31,7 @@ object ProjectPackages {
                         if (!file.isDirectory) return true
                         if (index.isExcluded(file) || (!includeTests && index.isInTestSourceContent(file))) return false
                         if (file.children.any { !it.isDirectory && it.extension == "java" }) {
-                            index.getPackageNameByDirectory(file)?.let(packages::add)
+                            PackageIndex.getInstance(project).getPackageNameByDirectory(file)?.let(packages::add)
                         }
                         return true
                     }
