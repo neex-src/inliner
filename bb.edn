@@ -1,5 +1,8 @@
-{:paths ["bb"]
+{:paths ["bb" "test"]
  :tasks
  {ijdev {:doc "ijdev <cmd> with the sandbox IDE on its own hidden Xvnc display: status, start, eval, hotswap, reload, shot, errors, stop, display …"
          :requires ([ide])
-         :task (apply ide/-main *command-line-args*)}}}
+         :task (apply ide/-main *command-line-args*)}
+  test {:doc "The babashka side's tests (the launcher choice of bb/ide.clj); the plugin's own suite is ./gradlew test"
+        :requires ([ide-test])
+        :task (ide-test/-main)}}}
