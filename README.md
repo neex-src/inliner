@@ -1,5 +1,7 @@
 # Inline Reading Mode
 
+All the code here is written by AI (Claude Code) and has not been reviewed.
+
 An IntelliJ plugin for reading Java code without jumping between files.
 
 Put the caret on a method call and press **Alt+,**. The body of the called method opens right
@@ -49,8 +51,8 @@ It needs IntelliJ IDEA 2026.2 or 2026.3. Java code only, for now.
 
 ## Build and test
 
-You need a JDK 21 or newer for Gradle. The first build downloads the IntelliJ platform into the
-Gradle cache, once.
+You need a JDK to run Gradle; Gradle downloads the JDK the build itself uses. The first build also
+downloads the IntelliJ platform into the Gradle cache, once.
 
     ./gradlew test           # the tests
     ./gradlew runIde         # a sandbox IntelliJ with the plugin, for trying things
@@ -59,5 +61,5 @@ Gradle cache, once.
 ## How it works
 
 An opened call is a real, read-only editor on the called file, cut down to the method and placed
-as a block under the call line. Because it is a real editor, IntelliJ's code navigation works
-inside it, and that is why opening calls inside calls costs nothing extra.
+as a block under the call line. IntelliJ's code navigation works inside it, so calls inside it can
+be opened the same way.
